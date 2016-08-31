@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2015 the original author or authors.
+ * Copyright 2002-2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -49,6 +49,7 @@ import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
  * @author Rob Harrop
  * @author Juergen Hoeller
  * @author Stephane Nicoll
+ * @author Kazuki Shimizu
  * @since 4.2
  * @see GenericObjectPool
  * @see #createObjectPool()
@@ -66,7 +67,7 @@ public class CommonsPool2TargetSource extends AbstractPoolingTargetSource implem
 
 	private int minIdle = GenericObjectPoolConfig.DEFAULT_MIN_IDLE;
 
-	private long maxWait = GenericObjectPoolConfig.DEFAULT_MAX_TOTAL;
+	private long maxWait = GenericObjectPoolConfig.DEFAULT_MAX_WAIT_MILLIS;
 
 	private long timeBetweenEvictionRunsMillis = GenericObjectPoolConfig.DEFAULT_TIME_BETWEEN_EVICTION_RUNS_MILLIS;
 
@@ -126,7 +127,7 @@ public class CommonsPool2TargetSource extends AbstractPoolingTargetSource implem
 	/**
 	 * Set the maximum waiting time for fetching an object from the pool.
 	 * Default is -1, waiting forever.
-	 * @see GenericObjectPool#setMaxTotal
+	 * @see GenericObjectPool#setMaxWaitMillis
 	 */
 	public void setMaxWait(long maxWait) {
 		this.maxWait = maxWait;
@@ -264,7 +265,7 @@ public class CommonsPool2TargetSource extends AbstractPoolingTargetSource implem
 
 	@Override
 	public PooledObject<Object> makeObject() throws Exception {
-		return new DefaultPooledObject<Object>(newPrototypeInstance());
+		return new DefaultPooledObject<>(newPrototypeInstance());
 	}
 
 	@Override

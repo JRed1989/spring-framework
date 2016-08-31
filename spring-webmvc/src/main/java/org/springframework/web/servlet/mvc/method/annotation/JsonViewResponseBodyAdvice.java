@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2015 the original author or authors.
+ * Copyright 2002-2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,7 +32,7 @@ import org.springframework.http.server.ServerHttpResponse;
  *
  * <p>The serialization view specified in the annotation will be passed in to the
  * {@link org.springframework.http.converter.json.MappingJackson2HttpMessageConverter}
- * which will then use it to serialize the response body with.
+ * which will then use it to serialize the response body.
  *
  * <p>Note that despite {@code @JsonView} allowing for more than one class to
  * be specified, the use for a response body advice is only supported with
@@ -47,7 +47,7 @@ public class JsonViewResponseBodyAdvice extends AbstractMappingJacksonResponseBo
 
 	@Override
 	public boolean supports(MethodParameter returnType, Class<? extends HttpMessageConverter<?>> converterType) {
-		return (super.supports(returnType, converterType) && returnType.getMethodAnnotation(JsonView.class) != null);
+		return super.supports(returnType, converterType) && returnType.hasMethodAnnotation(JsonView.class);
 	}
 
 	@Override

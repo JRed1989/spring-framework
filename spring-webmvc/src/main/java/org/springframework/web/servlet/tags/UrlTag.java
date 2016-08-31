@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2015 the original author or authors.
+ * Copyright 2002-2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -161,8 +161,8 @@ public class UrlTag extends HtmlEscapingAwareTag implements ParamAware {
 
 	@Override
 	public int doStartTagInternal() throws JspException {
-		this.params = new LinkedList<Param>();
-		this.templateParams = new HashSet<String>();
+		this.params = new LinkedList<>();
+		this.templateParams = new HashSet<>();
 		return EVAL_BODY_INCLUDE;
 	}
 
@@ -181,8 +181,8 @@ public class UrlTag extends HtmlEscapingAwareTag implements ParamAware {
 			try {
 				pageContext.getOut().print(url);
 			}
-			catch (IOException e) {
-				throw new JspException(e);
+			catch (IOException ex) {
+				throw new JspException(ex);
 			}
 		}
 		else {
@@ -208,7 +208,7 @@ public class UrlTag extends HtmlEscapingAwareTag implements ParamAware {
 				url.append(request.getContextPath());
 			}
 			else {
-				if(this.context.endsWith("/")) {
+				if (this.context.endsWith("/")) {
 					url.append(this.context.substring(0, this.context.length() - 1));
 				}
 				else {
@@ -315,10 +315,12 @@ public class UrlTag extends HtmlEscapingAwareTag implements ParamAware {
 		return uri;
 	}
 
+
 	/**
 	 * Internal enum that classifies URLs by type.
 	 */
 	private enum UrlType {
+
 		CONTEXT_RELATIVE, RELATIVE, ABSOLUTE
 	}
 

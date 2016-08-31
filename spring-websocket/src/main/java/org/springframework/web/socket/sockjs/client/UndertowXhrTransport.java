@@ -1,11 +1,11 @@
 /*
- * Copyright 2002-2015 the original author or authors.
+ * Copyright 2002-2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *  http://www.apache.org/licenses/LICENSE-2.0
+ *      http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -30,19 +30,19 @@ import io.undertow.client.ClientExchange;
 import io.undertow.client.ClientRequest;
 import io.undertow.client.ClientResponse;
 import io.undertow.client.UndertowClient;
+import io.undertow.connector.ByteBufferPool;
+import io.undertow.connector.PooledByteBuffer;
+import io.undertow.server.DefaultByteBufferPool;
 import io.undertow.util.AttachmentKey;
 import io.undertow.util.HeaderMap;
 import io.undertow.util.HttpString;
 import io.undertow.util.Methods;
 import io.undertow.util.StringReadChannelListener;
-import org.xnio.ByteBufferSlicePool;
 import org.xnio.ChannelListener;
 import org.xnio.ChannelListeners;
 import org.xnio.IoUtils;
 import org.xnio.OptionMap;
 import org.xnio.Options;
-import org.xnio.Pool;
-import org.xnio.Pooled;
 import org.xnio.Xnio;
 import org.xnio.XnioWorker;
 import org.xnio.channels.StreamSinkChannel;
@@ -64,7 +64,7 @@ import org.springframework.web.socket.sockjs.frame.SockJsFrame;
 
 /**
  * An XHR transport based on Undertow's {@link io.undertow.client.UndertowClient}.
- * Compatible with Undertow 1.0, 1.1, 1.2.
+ * Requires Undertow 1.3 or 1.4, including XNIO, as of Spring Framework 5.0.
  *
  * <p>When used for testing purposes (e.g. load testing) or for specific use cases
  * (like HTTPS configuration), a custom OptionMap should be provided:
@@ -85,7 +85,7 @@ import org.springframework.web.socket.sockjs.frame.SockJsFrame;
  * @since 4.1.2
  * @see org.xnio.Options
  */
-public class UndertowXhrTransport extends AbstractXhrTransport implements XhrTransport {
+public class UndertowXhrTransport extends AbstractXhrTransport {
 
 	private static final AttachmentKey<String> RESPONSE_BODY = AttachmentKey.create(String.class);
 
@@ -96,7 +96,7 @@ public class UndertowXhrTransport extends AbstractXhrTransport implements XhrTra
 
 	private final XnioWorker worker;
 
-	private final Pool<ByteBuffer> bufferPool;
+	private final ByteBufferPool bufferPool;
 
 
 	public UndertowXhrTransport() throws IOException {
@@ -104,11 +104,11 @@ public class UndertowXhrTransport extends AbstractXhrTransport implements XhrTra
 	}
 
 	public UndertowXhrTransport(OptionMap optionMap) throws IOException {
-		Assert.notNull(optionMap, "'optionMap' is required");
-		this.httpClient = UndertowClient.getInstance();
+		Assert.notNull(optionMap, "OptionMap is required");
 		this.optionMap = optionMap;
+		this.httpClient = UndertowClient.getInstance();
 		this.worker = Xnio.getInstance().createWorker(optionMap);
-		this.bufferPool = new ByteBufferSlicePool(1048, 1048);
+		this.bufferPool = new DefaultByteBufferPool(false, 1024, -1, 2);
 	}
 
 
@@ -142,29 +142,28 @@ public class UndertowXhrTransport extends AbstractXhrTransport implements XhrTra
 			final SettableListenableFuture<WebSocketSession> connectFuture) {
 
 		if (logger.isTraceEnabled()) {
-			logger.trace("Starting XHR receive request, url=" + url);
+			logger.trace("Starting XHR receive request for " + url);
 		}
 
-		this.httpClient.connect(
-				new ClientCallback<ClientConnection>() {
+		ClientCallback<ClientConnection> clientCallback = new ClientCallback<ClientConnection>() {
+			@Override
+			public void completed(ClientConnection connection) {
+				ClientRequest request = new ClientRequest().setMethod(Methods.POST).setPath(url.getPath());
+				HttpString headerName = HttpString.tryFromString(HttpHeaders.HOST);
+				request.getRequestHeaders().add(headerName, url.getHost());
+				addHttpHeaders(request, headers);
+				HttpHeaders httpHeaders = transportRequest.getHttpRequestHeaders();
+				connection.sendRequest(request, createReceiveCallback(transportRequest,
+						url, httpHeaders, session, connectFuture));
+			}
 
-					@Override
-					public void completed(ClientConnection connection) {
-						ClientRequest request = new ClientRequest().setMethod(Methods.POST).setPath(url.getPath());
-						HttpString headerName = HttpString.tryFromString(HttpHeaders.HOST);
-						request.getRequestHeaders().add(headerName, url.getHost());
-						addHttpHeaders(request, headers);
-						HttpHeaders httpHeaders = transportRequest.getHttpRequestHeaders();
-						connection.sendRequest(request, createReceiveCallback(transportRequest,
-								url, httpHeaders, session, connectFuture));
-					}
+			@Override
+			public void failed(IOException ex) {
+				throw new SockJsTransportFailureException("Failed to execute request to " + url, ex);
+			}
+		};
 
-					@Override
-					public void failed(IOException ex) {
-						throw new SockJsTransportFailureException("Failed to execute request to " + url, ex);
-					}
-				},
-				url, this.worker, this.bufferPool, this.optionMap);
+		this.httpClient.connect(clientCallback, url, this.worker, this.bufferPool, this.optionMap);
 	}
 
 	private static void addHttpHeaders(ClientRequest request, HttpHeaders headers) {
@@ -181,11 +180,9 @@ public class UndertowXhrTransport extends AbstractXhrTransport implements XhrTra
 			final SettableListenableFuture<WebSocketSession> connectFuture) {
 
 		return new ClientCallback<ClientExchange>() {
-
 			@Override
 			public void completed(final ClientExchange exchange) {
 				exchange.setResponseListener(new ClientCallback<ClientExchange>() {
-
 					@Override
 					public void completed(ClientExchange result) {
 						ClientResponse response = result.getResponse();
@@ -267,11 +264,11 @@ public class UndertowXhrTransport extends AbstractXhrTransport implements XhrTra
 
 	protected ResponseEntity<String> executeRequest(URI url, HttpString method, HttpHeaders headers, String body) {
 		CountDownLatch latch = new CountDownLatch(1);
-		List<ClientResponse> responses = new CopyOnWriteArrayList<ClientResponse>();
+		List<ClientResponse> responses = new CopyOnWriteArrayList<>();
 
 		try {
-			ClientConnection connection = this.httpClient.connect(url, this.worker,
-					this.bufferPool, this.optionMap).get();
+			ClientConnection connection =
+					this.httpClient.connect(url, this.worker, this.bufferPool, this.optionMap).get();
 			try {
 				ClientRequest request = new ClientRequest().setMethod(method).setPath(url.getPath());
 				request.getRequestHeaders().add(HttpString.tryFromString(HttpHeaders.HOST), url.getHost());
@@ -288,8 +285,8 @@ public class UndertowXhrTransport extends AbstractXhrTransport implements XhrTra
 				HttpHeaders responseHeaders = toHttpHeaders(response.getResponseHeaders());
 				String responseBody = response.getAttachment(RESPONSE_BODY);
 				return (responseBody != null ?
-						new ResponseEntity<String>(responseBody, responseHeaders, status) :
-						new ResponseEntity<String>(responseHeaders, status));
+						new ResponseEntity<>(responseBody, responseHeaders, status) :
+						new ResponseEntity<>(responseHeaders, status));
 			}
 			finally {
 				IoUtils.safeClose(connection);
@@ -307,7 +304,6 @@ public class UndertowXhrTransport extends AbstractXhrTransport implements XhrTra
 			final List<ClientResponse> responses, final CountDownLatch latch) {
 
 		return new ClientCallback<ClientExchange>() {
-
 			@Override
 			public void completed(ClientExchange result) {
 				result.setResponseListener(new ClientCallback<ClientExchange>() {
@@ -376,7 +372,6 @@ public class UndertowXhrTransport extends AbstractXhrTransport implements XhrTra
 
 		private final ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
 
-
 		public SockJsResponseListener(TransportRequest request, ClientConnection connection, URI url,
 				HttpHeaders headers, XhrClientSockJsSession sockJsSession,
 				SettableListenableFuture<WebSocketSession> connectFuture) {
@@ -405,11 +400,11 @@ public class UndertowXhrTransport extends AbstractXhrTransport implements XhrTra
 				throw new SockJsException("Session closed.", this.session.getId(), null);
 			}
 
-			Pooled<ByteBuffer> pooled = this.connection.getBufferPool().allocate();
+			PooledByteBuffer pooled = bufferPool.allocate();
 			try {
 				int r;
 				do {
-					ByteBuffer buffer = pooled.getResource();
+					ByteBuffer buffer = pooled.getBuffer();
 					buffer.clear();
 					r = channel.read(buffer);
 					buffer.flip();
@@ -437,7 +432,7 @@ public class UndertowXhrTransport extends AbstractXhrTransport implements XhrTra
 				onFailure(exc);
 			}
 			finally {
-				pooled.free();
+				pooled.close();
 			}
 		}
 
@@ -466,7 +461,7 @@ public class UndertowXhrTransport extends AbstractXhrTransport implements XhrTra
 
 		public void onFailure(Throwable failure) {
 			IoUtils.safeClose(this.connection);
-			if (connectFuture.setException(failure)) {
+			if (this.connectFuture.setException(failure)) {
 				return;
 			}
 			if (this.session.isDisconnected()) {

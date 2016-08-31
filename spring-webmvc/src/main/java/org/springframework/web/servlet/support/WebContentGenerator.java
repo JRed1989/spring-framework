@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2015 the original author or authors.
+ * Copyright 2002-2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,8 +16,11 @@
 
 package org.springframework.web.servlet.support;
 
+import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashSet;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import javax.servlet.ServletException;
@@ -25,6 +28,10 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
 import org.springframework.http.CacheControl;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.util.ClassUtils;
+import org.springframework.util.ObjectUtils;
 import org.springframework.util.StringUtils;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.HttpSessionRequiredException;
@@ -38,11 +45,11 @@ import org.springframework.web.context.support.WebApplicationObjectSupport;
  * {@link org.springframework.web.servlet.HandlerAdapter}.
  *
  * <p>Supports HTTP cache control options. The usage of corresponding HTTP
- * headers can be controlled via the {@link #setCacheSeconds "cacheSeconds"
+ * headers can be controlled via the {@link #setCacheSeconds "cacheSeconds"}
  * and {@link #setCacheControl "cacheControl"} properties.
  *
  * <p><b>NOTE:</b> As of Spring 4.2, this generator's default behavior changed when
- * using only {@link #setCacheSeconds)}, sending HTTP response headers that are in line
+ * using only {@link #setCacheSeconds}, sending HTTP response headers that are in line
  * with current browsers and proxies implementations (i.e. no HTTP 1.0 headers anymore)
  * Reverting to the previous behavior can be easily done by using one of the newly
  * deprecated methods {@link #setUseExpiresHeader}, {@link #setUseCacheControlHeader},
@@ -51,6 +58,7 @@ import org.springframework.web.context.support.WebApplicationObjectSupport;
  * @author Rod Johnson
  * @author Juergen Hoeller
  * @author Brian Clozel
+ * @author Rossen Stoyanchev
  * @see #setCacheSeconds
  * @see #setCacheControl
  * @see #setRequireSession
@@ -70,17 +78,24 @@ public abstract class WebContentGenerator extends WebApplicationObjectSupport {
 
 	private static final String HEADER_EXPIRES = "Expires";
 
-	private static final String HEADER_CACHE_CONTROL = "Cache-Control";
+	protected static final String HEADER_CACHE_CONTROL = "Cache-Control";
 
 
 	/** Set of supported HTTP methods */
 	private Set<String> supportedMethods;
+
+	private String allowHeader;
 
 	private boolean requireSession = false;
 
 	private CacheControl cacheControl;
 
 	private int cacheSeconds = -1;
+
+	private String[] varyByRequestHeaders;
+
+
+	// deprecated fields
 
 	/** Use HTTP 1.0 expires header? */
 	private boolean useExpiresHeader = false;
@@ -110,11 +125,12 @@ public abstract class WebContentGenerator extends WebApplicationObjectSupport {
 	 */
 	public WebContentGenerator(boolean restrictDefaultSupportedMethods) {
 		if (restrictDefaultSupportedMethods) {
-			this.supportedMethods = new HashSet<String>(4);
+			this.supportedMethods = new LinkedHashSet<>(4);
 			this.supportedMethods.add(METHOD_GET);
 			this.supportedMethods.add(METHOD_HEAD);
 			this.supportedMethods.add(METHOD_POST);
 		}
+		initAllowHeader();
 	}
 
 	/**
@@ -122,7 +138,7 @@ public abstract class WebContentGenerator extends WebApplicationObjectSupport {
 	 * @param supportedMethods the supported HTTP methods for this content generator
 	 */
 	public WebContentGenerator(String... supportedMethods) {
-		this.supportedMethods = new HashSet<String>(Arrays.asList(supportedMethods));
+		setSupportedMethods(supportedMethods);
 	}
 
 
@@ -132,12 +148,13 @@ public abstract class WebContentGenerator extends WebApplicationObjectSupport {
 	 * unrestricted for general controllers and interceptors.
 	 */
 	public final void setSupportedMethods(String... methods) {
-		if (methods != null) {
-			this.supportedMethods = new HashSet<String>(Arrays.asList(methods));
+		if (!ObjectUtils.isEmpty(methods)) {
+			this.supportedMethods = new LinkedHashSet<>(Arrays.asList(methods));
 		}
 		else {
 			this.supportedMethods = null;
 		}
+		initAllowHeader();
 	}
 
 	/**
@@ -145,6 +162,40 @@ public abstract class WebContentGenerator extends WebApplicationObjectSupport {
 	 */
 	public final String[] getSupportedMethods() {
 		return StringUtils.toStringArray(this.supportedMethods);
+	}
+
+	private void initAllowHeader() {
+		Collection<String> allowedMethods;
+		if (this.supportedMethods == null) {
+			allowedMethods = new ArrayList<>(HttpMethod.values().length - 1);
+			for (HttpMethod method : HttpMethod.values()) {
+				if (!HttpMethod.TRACE.equals(method)) {
+					allowedMethods.add(method.name());
+				}
+			}
+		}
+		else if (this.supportedMethods.contains(HttpMethod.OPTIONS.name())) {
+			allowedMethods = this.supportedMethods;
+		}
+		else {
+			allowedMethods = new ArrayList<>(this.supportedMethods);
+			allowedMethods.add(HttpMethod.OPTIONS.name());
+
+		}
+		this.allowHeader = StringUtils.collectionToCommaDelimitedString(allowedMethods);
+	}
+
+	/**
+	 * Return the "Allow" header value to use in response to an HTTP OPTIONS
+	 * request based on the configured {@link #setSupportedMethods supported
+	 * methods} also automatically adding "OPTIONS" to the list even if not
+	 * present as a supported method. This means sub-classes don't have to
+	 * explicitly list "OPTIONS" as a supported method as long as HTTP OPTIONS
+	 * requests are handled before making a call to
+	 * {@link #checkRequest(HttpServletRequest)}.
+	 */
+	protected String getAllowHeader() {
+		return this.allowHeader;
 	}
 
 	/**
@@ -200,6 +251,27 @@ public abstract class WebContentGenerator extends WebApplicationObjectSupport {
 	 */
 	public final int getCacheSeconds() {
 		return this.cacheSeconds;
+	}
+
+	/**
+	 * Configure one or more request header names (e.g. "Accept-Language") to
+	 * add to the "Vary" response header to inform clients that the response is
+	 * subject to content negotiation and variances based on the value of the
+	 * given request headers. The configured request header names are added only
+	 * if not already present in the response "Vary" header.
+	 * @param varyByRequestHeaders one or more request header names
+	 * @since 4.3
+	 */
+	public final void setVaryByRequestHeaders(String... varyByRequestHeaders) {
+		this.varyByRequestHeaders = varyByRequestHeaders;
+	}
+
+	/**
+	 * Return the configured request header names for the "Vary" response header.
+	 * @since 4.3
+	 */
+	public final String[] getVaryByRequestHeaders() {
+		return this.varyByRequestHeaders;
 	}
 
 	/**
@@ -320,6 +392,11 @@ public abstract class WebContentGenerator extends WebApplicationObjectSupport {
 		else {
 			applyCacheSeconds(response, this.cacheSeconds);
 		}
+		if (this.varyByRequestHeaders != null) {
+			for (String value : getVaryRequestHeadersToAdd(response)) {
+				response.addHeader("Vary", value);
+			}
+		}
 	}
 
 	/**
@@ -337,6 +414,10 @@ public abstract class WebContentGenerator extends WebApplicationObjectSupport {
 			if (response.containsHeader(HEADER_PRAGMA)) {
 				// Reset HTTP 1.0 Pragma header if present
 				response.setHeader(HEADER_PRAGMA, "");
+			}
+			if (response.containsHeader(HEADER_EXPIRES)) {
+				// Reset HTTP 1.0 Expires header if present
+				response.setHeader(HEADER_EXPIRES, "");
 			}
 		}
 	}
@@ -462,6 +543,10 @@ public abstract class WebContentGenerator extends WebApplicationObjectSupport {
 			// HTTP 1.0 header
 			response.setDateHeader(HEADER_EXPIRES, System.currentTimeMillis() + seconds * 1000L);
 		}
+		else if (response.containsHeader(HEADER_EXPIRES)) {
+			// Reset HTTP 1.0 Expires header if present
+			response.setHeader(HEADER_EXPIRES, "");
+		}
 
 		if (this.useCacheControlHeader) {
 			// HTTP 1.1 header
@@ -501,6 +586,28 @@ public abstract class WebContentGenerator extends WebApplicationObjectSupport {
 				response.addHeader(HEADER_CACHE_CONTROL, "no-store");
 			}
 		}
+	}
+
+
+	private Collection<String> getVaryRequestHeadersToAdd(HttpServletResponse response) {
+		if (!response.containsHeader(HttpHeaders.VARY)) {
+			return Arrays.asList(getVaryByRequestHeaders());
+		}
+		Collection<String> result = new ArrayList<>(getVaryByRequestHeaders().length);
+		Collections.addAll(result, getVaryByRequestHeaders());
+		for (String header : response.getHeaders(HttpHeaders.VARY)) {
+			for (String existing : StringUtils.tokenizeToStringArray(header, ",")) {
+				if ("*".equals(existing)) {
+					return Collections.emptyList();
+				}
+				for (String value : getVaryByRequestHeaders()) {
+					if (value.equalsIgnoreCase(existing)) {
+						result.remove(value);
+					}
+				}
+			}
+		}
+		return result;
 	}
 
 }

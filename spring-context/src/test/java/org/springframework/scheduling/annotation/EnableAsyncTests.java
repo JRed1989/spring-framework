@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2015 the original author or authors.
+ * Copyright 2002-2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,19 +26,24 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
 
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import org.springframework.aop.Advisor;
 import org.springframework.aop.framework.Advised;
 import org.springframework.aop.interceptor.AsyncUncaughtExceptionHandler;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.factory.BeanDefinitionStoreException;
+import org.springframework.beans.factory.BeanNotOfRequiredTypeException;
+import org.springframework.beans.factory.UnsatisfiedDependencyException;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.AdviceMode;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.core.Ordered;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import org.springframework.stereotype.Component;
 import org.springframework.util.ReflectionUtils;
 
 import static org.hamcrest.CoreMatchers.anyOf;
@@ -65,6 +70,48 @@ public class EnableAsyncTests {
 		AsyncBean asyncBean = ctx.getBean(AsyncBean.class);
 		assertThat(AopUtils.isAopProxy(asyncBean), is(true));
 		asyncBean.work();
+	}
+
+	@Test
+	public void proxyingOccursWithMockitoStub() {
+		AnnotationConfigApplicationContext ctx = new AnnotationConfigApplicationContext();
+		ctx.register(AsyncConfigWithMockito.class, AsyncBeanUser.class);
+		ctx.refresh();
+
+		AsyncBeanUser asyncBeanUser = ctx.getBean(AsyncBeanUser.class);
+		AsyncBean asyncBean = asyncBeanUser.getAsyncBean();
+		assertThat(AopUtils.isAopProxy(asyncBean), is(true));
+		asyncBean.work();
+	}
+
+	@Test
+	public void properExceptionForExistingProxyDependencyMismatch() {
+		AnnotationConfigApplicationContext ctx = new AnnotationConfigApplicationContext();
+		ctx.register(AsyncConfig.class, AsyncBeanWithInterface.class, AsyncBeanUser.class);
+
+		try {
+			ctx.refresh();
+			fail("Should have thrown UnsatisfiedDependencyException");
+		}
+		catch (UnsatisfiedDependencyException ex) {
+			ex.printStackTrace();
+			assertTrue(ex.getCause() instanceof BeanNotOfRequiredTypeException);
+		}
+	}
+
+	@Test
+	public void properExceptionForResolvedProxyDependencyMismatch() {
+		AnnotationConfigApplicationContext ctx = new AnnotationConfigApplicationContext();
+		ctx.register(AsyncConfig.class, AsyncBeanUser.class, AsyncBeanWithInterface.class);
+
+		try {
+			ctx.refresh();
+			fail("Should have thrown UnsatisfiedDependencyException");
+		}
+		catch (UnsatisfiedDependencyException ex) {
+			ex.printStackTrace();
+			assertTrue(ex.getCause() instanceof BeanNotOfRequiredTypeException);
+		}
 	}
 
 	@Test
@@ -107,7 +154,7 @@ public class EnableAsyncTests {
 	@Test
 	public void customAsyncAnnotationIsPropagated() {
 		AnnotationConfigApplicationContext ctx = new AnnotationConfigApplicationContext();
-		ctx.register(CustomAsyncAnnotationConfig.class);
+		ctx.register(CustomAsyncAnnotationConfig.class, CustomAsyncBean.class);
 		ctx.refresh();
 
 		Object bean = ctx.getBean(CustomAsyncBean.class);
@@ -160,22 +207,22 @@ public class EnableAsyncTests {
 
 		@Async
 		public Future<Thread> work0() {
-			return new AsyncResult<Thread>(Thread.currentThread());
+			return new AsyncResult<>(Thread.currentThread());
 		}
 
 		@Async("e1")
 		public Future<Thread> work() {
-			return new AsyncResult<Thread>(Thread.currentThread());
+			return new AsyncResult<>(Thread.currentThread());
 		}
 
 		@Async("otherExecutor")
 		public Future<Thread> work2() {
-			return new AsyncResult<Thread>(Thread.currentThread());
+			return new AsyncResult<>(Thread.currentThread());
 		}
 
 		@Async("e2")
 		public Future<Thread> work3() {
-			return new AsyncResult<Thread>(Thread.currentThread());
+			return new AsyncResult<>(Thread.currentThread());
 		}
 	}
 
@@ -200,14 +247,31 @@ public class EnableAsyncTests {
 	}
 
 
-	@Configuration
+	@Component("asyncBean")
+	static class AsyncBeanWithInterface extends AsyncBean implements Runnable {
+
+		@Override
+		public void run() {
+		}
+	}
+
+
+	static class AsyncBeanUser {
+
+		private final AsyncBean asyncBean;
+
+		public AsyncBeanUser(AsyncBean asyncBean) {
+			this.asyncBean = asyncBean;
+		}
+
+		public AsyncBean getAsyncBean() {
+			return asyncBean;
+		}
+	}
+
+
 	@EnableAsync(annotation = CustomAsync.class)
 	static class CustomAsyncAnnotationConfig {
-
-		@Bean
-		public CustomAsyncBean asyncBean() {
-			return new CustomAsyncBean();
-		}
 	}
 
 
@@ -254,6 +318,17 @@ public class EnableAsyncTests {
 		@Bean
 		public AsyncBean asyncBean() {
 			return new AsyncBean();
+		}
+	}
+
+
+	@Configuration
+	@EnableAsync
+	static class AsyncConfigWithMockito {
+
+		@Bean @Lazy
+		public AsyncBean asyncBean() {
+			return Mockito.mock(AsyncBean.class);
 		}
 	}
 

@@ -59,6 +59,8 @@ public class ScriptTemplateConfigurer implements ScriptTemplateConfig {
 
 	private String renderFunction;
 
+	private String contentType;
+
 	private Charset charset;
 
 	private String resourceLoaderPath;
@@ -155,10 +157,12 @@ public class ScriptTemplateConfigurer implements ScriptTemplateConfig {
 
 	/**
 	 * Set the render function name (mandatory).
-	 * This function will be called with the following parameters:
+	 *
+	 * <p>This function will be called with the following parameters:
 	 * <ol>
-	 * <li>{@code template}: the view template content (String)</li>
-	 * <li>{@code model}: the view model (Map)</li>
+	 * <li>{@code String template}: the template content</li>
+	 * <li>{@code Map model}: the view model</li>
+	 * <li>{@code String url}: the template url (since 4.2.2)</li>
 	 * </ol>
 	 */
 	public void setRenderFunction(String renderFunction) {
@@ -168,6 +172,24 @@ public class ScriptTemplateConfigurer implements ScriptTemplateConfig {
 	@Override
 	public String getRenderFunction() {
 		return this.renderFunction;
+	}
+
+	/**
+	 * Set the content type to use for the response.
+	 * ({@code text/html} by default).
+	 * @since 4.2.1
+	 */
+	public void setContentType(String contentType) {
+		this.contentType = contentType;
+	}
+
+	/**
+	 * Return the content type to use for the response.
+	 * @since 4.2.1
+	 */
+	@Override
+	public String getContentType() {
+		return this.contentType;
 	}
 
 	/**

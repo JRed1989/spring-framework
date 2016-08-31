@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2015 the original author or authors.
+ * Copyright 2002-2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,6 @@
 
 package org.springframework.http.converter.xml;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
@@ -46,6 +45,8 @@ import org.springframework.http.converter.GenericHttpMessageConverter;
 import org.springframework.http.converter.HttpMessageConversionException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.http.converter.HttpMessageNotWritableException;
+import org.springframework.util.ReflectionUtils;
+import org.springframework.util.StreamUtils;
 
 /**
  * An {@code HttpMessageConverter} that can read XML collections using JAXB2.
@@ -119,7 +120,7 @@ public class Jaxb2CollectionHttpMessageConverter<T extends Collection>
 	 * does not convert collections to XML.
 	 */
 	@Override
-	public boolean canWrite(Type type, Class<?> contextClass, MediaType mediaType) {
+	public boolean canWrite(Type type, Class<?> clazz, MediaType mediaType) {
 		return false;
 	}
 
@@ -185,12 +186,11 @@ public class Jaxb2CollectionHttpMessageConverter<T extends Collection>
 	protected T createCollection(Class<?> collectionClass) {
 		if (!collectionClass.isInterface()) {
 			try {
-				return (T) collectionClass.newInstance();
+				return (T) ReflectionUtils.accessibleConstructor(collectionClass).newInstance();
 			}
-			catch (Exception ex) {
+			catch (Throwable ex) {
 				throw new IllegalArgumentException(
-						"Could not instantiate collection class [" +
-								collectionClass.getName() + "]: " + ex.getMessage());
+						"Could not instantiate collection class: " + collectionClass.getName(), ex);
 			}
 		}
 		else if (List.class == collectionClass) {
@@ -256,7 +256,7 @@ public class Jaxb2CollectionHttpMessageConverter<T extends Collection>
 	private static final XMLResolver NO_OP_XML_RESOLVER = new XMLResolver() {
 		@Override
 		public Object resolveEntity(String publicID, String systemID, String base, String ns) {
-			return new ByteArrayInputStream(new byte[0]);
+			return StreamUtils.emptyInput();
 		}
 	};
 

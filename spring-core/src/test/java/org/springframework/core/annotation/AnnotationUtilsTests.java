@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2015 the original author or authors.
+ * Copyright 2002-2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,14 +22,14 @@ import java.lang.annotation.Repeatable;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
@@ -38,6 +38,7 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.subpackage.NonPublicAnnotatedClass;
 import org.springframework.stereotype.Component;
 import org.springframework.util.ClassUtils;
+import org.springframework.util.ReflectionUtils;
 
 import static java.util.Arrays.*;
 import static java.util.stream.Collectors.*;
@@ -58,6 +59,27 @@ public class AnnotationUtilsTests {
 
 	@Rule
 	public final ExpectedException exception = ExpectedException.none();
+
+
+	@Before
+	public void clearCachesBeforeTests() {
+		clearCaches();
+	}
+
+	static void clearCaches() {
+		clearCache("findAnnotationCache", "annotatedInterfaceCache", "metaPresentCache", "synthesizableCache",
+				"attributeAliasesCache", "attributeMethodsCache", "aliasDescriptorCache");
+	}
+
+	static void clearCache(String... cacheNames) {
+		stream(cacheNames).forEach(cacheName -> getCache(cacheName).clear());
+	}
+
+	static Map<?, ?> getCache(String cacheName) {
+		Field field = ReflectionUtils.findField(AnnotationUtils.class, cacheName);
+		ReflectionUtils.makeAccessible(field);
+		return (Map<?, ?>) ReflectionUtils.getField(field, null);
+	}
 
 
 	@Test
@@ -131,15 +153,37 @@ public class AnnotationUtilsTests {
 
 	@Test
 	public void findMethodAnnotationOnBridgeMethod() throws Exception {
-		Method m = SimpleFoo.class.getMethod("something", Object.class);
-		assertTrue(m.isBridge());
-		assertNull(m.getAnnotation(Order.class));
-		assertNull(getAnnotation(m, Order.class));
-		assertNotNull(findAnnotation(m, Order.class));
-		// TODO: getAnnotation() on bridge method actually found on OpenJDK 8 b99 and higher!
-		// assertNull(m.getAnnotation(Transactional.class));
-		assertNotNull(getAnnotation(m, Transactional.class));
-		assertNotNull(findAnnotation(m, Transactional.class));
+		Method bridgeMethod = SimpleFoo.class.getMethod("something", Object.class);
+		assertTrue(bridgeMethod.isBridge());
+
+		assertNull(bridgeMethod.getAnnotation(Order.class));
+		assertNull(getAnnotation(bridgeMethod, Order.class));
+		assertNotNull(findAnnotation(bridgeMethod, Order.class));
+
+		// As of OpenJDK 8 b99, invoking getAnnotation() on a bridge method actually finds
+		// an annotation on its 'bridged' method. This differs from the previous behavior
+		// of JDK 5 through 7 and from the current behavior of the Eclipse compiler;
+		// however, we need to ensure that the tests pass in the Gradle build. So we
+		// comment out the following assertion.
+		// assertNull(bridgeMethod.getAnnotation(Transactional.class));
+		assertNotNull(getAnnotation(bridgeMethod, Transactional.class));
+		assertNotNull(findAnnotation(bridgeMethod, Transactional.class));
+	}
+
+	@Test
+	public void findMethodAnnotationOnBridgedMethod() throws Exception {
+		Method bridgedMethod = SimpleFoo.class.getMethod("something", String.class);
+		assertFalse(bridgedMethod.isBridge());
+
+		assertNull(bridgedMethod.getAnnotation(Order.class));
+		assertNull(getAnnotation(bridgedMethod, Order.class));
+		// AnnotationUtils.findAnnotation(Method, Class<A>) will not find an annotation on
+		// the bridge method for a bridged method.
+		assertNull(findAnnotation(bridgedMethod, Order.class));
+
+		assertNotNull(bridgedMethod.getAnnotation(Transactional.class));
+		assertNotNull(getAnnotation(bridgedMethod, Transactional.class));
+		assertNotNull(findAnnotation(bridgedMethod, Transactional.class));
 	}
 
 	@Test
@@ -166,8 +210,7 @@ public class AnnotationUtilsTests {
 	/** @since 4.1.2 */
 	@Test
 	public void findClassAnnotationFavorsMoreLocallyDeclaredComposedAnnotationsOverAnnotationsOnInterfaces() {
-		Component component = findAnnotation(ClassWithLocalMetaAnnotationAndMetaAnnotatedInterface.class,
-			Component.class);
+		Component component = findAnnotation(ClassWithLocalMetaAnnotationAndMetaAnnotatedInterface.class, Component.class);
 		assertNotNull(component);
 		assertEquals("meta2", component.value());
 	}
@@ -286,7 +329,7 @@ public class AnnotationUtilsTests {
 	@Test
 	public void findAnnotationDeclaringClassForTypesWithSingleCandidateType() {
 		// no class-level annotation
-		List<Class<? extends Annotation>> transactionalCandidateList = Arrays.<Class<? extends Annotation>> asList(Transactional.class);
+		List<Class<? extends Annotation>> transactionalCandidateList = Collections.singletonList(Transactional.class);
 		assertNull(findAnnotationDeclaringClassForTypes(transactionalCandidateList, NonAnnotatedInterface.class));
 		assertNull(findAnnotationDeclaringClassForTypes(transactionalCandidateList, NonAnnotatedClass.class));
 
@@ -301,7 +344,7 @@ public class AnnotationUtilsTests {
 
 		// non-inherited class-level annotation; note: @Order is not inherited,
 		// but findAnnotationDeclaringClassForTypes() should still find it on classes.
-		List<Class<? extends Annotation>> orderCandidateList = Arrays.<Class<? extends Annotation>> asList(Order.class);
+		List<Class<? extends Annotation>> orderCandidateList = Collections.singletonList(Order.class);
 		assertEquals(NonInheritedAnnotationInterface.class,
 				findAnnotationDeclaringClassForTypes(orderCandidateList, NonInheritedAnnotationInterface.class));
 		assertNull(findAnnotationDeclaringClassForTypes(orderCandidateList, SubNonInheritedAnnotationInterface.class));
@@ -313,7 +356,7 @@ public class AnnotationUtilsTests {
 
 	@Test
 	public void findAnnotationDeclaringClassForTypesWithMultipleCandidateTypes() {
-		List<Class<? extends Annotation>> candidates = Arrays.<Class<? extends Annotation>> asList(Transactional.class, Order.class);
+		List<Class<? extends Annotation>> candidates = asList(Transactional.class, Order.class);
 
 		// no class-level annotation
 		assertNull(findAnnotationDeclaringClassForTypes(candidates, NonAnnotatedInterface.class));
@@ -422,8 +465,8 @@ public class AnnotationUtilsTests {
 		assertNotNull(attributes);
 		assertEquals(WebMapping.class, attributes.annotationType());
 		assertEquals("name attribute: ", "foo", attributes.getString("name"));
-		assertEquals("value attribute: ", "/test", attributes.getString(VALUE));
-		assertEquals("path attribute: ", "/test", attributes.getString("path"));
+		assertArrayEquals("value attribute: ", asArray("/test"), attributes.getStringArray(VALUE));
+		assertArrayEquals("path attribute: ", asArray("/test"), attributes.getStringArray("path"));
 
 		method = WebController.class.getMethod("handleMappedWithPathAttribute");
 		webMapping = method.getAnnotation(WebMapping.class);
@@ -431,15 +474,18 @@ public class AnnotationUtilsTests {
 		assertNotNull(attributes);
 		assertEquals(WebMapping.class, attributes.annotationType());
 		assertEquals("name attribute: ", "bar", attributes.getString("name"));
-		assertEquals("value attribute: ", "/test", attributes.getString(VALUE));
-		assertEquals("path attribute: ", "/test", attributes.getString("path"));
+		assertArrayEquals("value attribute: ", asArray("/test"), attributes.getStringArray(VALUE));
+		assertArrayEquals("path attribute: ", asArray("/test"), attributes.getStringArray("path"));
+	}
 
-		method = WebController.class.getMethod("handleMappedWithDifferentPathAndValueAttributes");
-		webMapping = method.getAnnotation(WebMapping.class);
+	@Test
+	public void getAnnotationAttributesWithAttributeAliasesWithDifferentValues() throws Exception {
 		exception.expect(AnnotationConfigurationException.class);
 		exception.expectMessage(containsString("attribute 'value' and its alias 'path'"));
-		exception.expectMessage(containsString("values of [/enigma] and [/test]"));
-		exception.expectMessage(containsString("but only one is permitted"));
+		exception.expectMessage(containsString("values of [{/enigma}] and [{/test}]"));
+
+		Method method = WebController.class.getMethod("handleMappedWithDifferentPathAndValueAttributes");
+		WebMapping webMapping = method.getAnnotation(WebMapping.class);
 		getAnnotationAttributes(webMapping);
 	}
 
@@ -502,21 +548,22 @@ public class AnnotationUtilsTests {
 		Set<MyRepeatable> annotations = getRepeatableAnnotations(method, MyRepeatable.class, MyRepeatableContainer.class);
 		assertNotNull(annotations);
 		List<String> values = annotations.stream().map(MyRepeatable::value).collect(toList());
-		assertThat(values, is(Arrays.asList("A", "B", "C", "meta1")));
+		assertThat(values, is(asList("A", "B", "C", "meta1")));
 	}
 
 	@Test
 	public void getRepeatableAnnotationsDeclaredOnClassWithMissingAttributeAliasDeclaration() throws Exception {
 		exception.expect(AnnotationConfigurationException.class);
-		exception.expectMessage(containsString("Attribute [value] in"));
+		exception.expectMessage(startsWith("Attribute 'value' in"));
 		exception.expectMessage(containsString(BrokenContextConfig.class.getName()));
-		exception.expectMessage(containsString("must be declared as an @AliasFor [locations]"));
+		exception.expectMessage(containsString("@AliasFor [location]"));
+
 		getRepeatableAnnotations(BrokenConfigHierarchyTestCase.class, BrokenContextConfig.class, BrokenHierarchy.class);
 	}
 
 	@Test
 	public void getRepeatableAnnotationsDeclaredOnClassWithAttributeAliases() throws Exception {
-		final List<String> expectedLocations = Arrays.asList("A", "B");
+		final List<String> expectedLocations = asList("A", "B");
 
 		Set<ContextConfig> annotations = getRepeatableAnnotations(ConfigHierarchyTestCase.class, ContextConfig.class, null);
 		assertNotNull(annotations);
@@ -525,7 +572,7 @@ public class AnnotationUtilsTests {
 		annotations = getRepeatableAnnotations(ConfigHierarchyTestCase.class, ContextConfig.class, Hierarchy.class);
 		assertNotNull(annotations);
 
-		List<String> locations = annotations.stream().map(ContextConfig::locations).collect(toList());
+		List<String> locations = annotations.stream().map(ContextConfig::location).collect(toList());
 		assertThat(locations, is(expectedLocations));
 
 		List<String> values = annotations.stream().map(ContextConfig::value).collect(toList());
@@ -534,8 +581,8 @@ public class AnnotationUtilsTests {
 
 	@Test
 	public void getRepeatableAnnotationsDeclaredOnClass() {
-		final List<String> expectedValuesJava = Arrays.asList("A", "B", "C");
-		final List<String> expectedValuesSpring = Arrays.asList("A", "B", "C", "meta1");
+		final List<String> expectedValuesJava = asList("A", "B", "C");
+		final List<String> expectedValuesSpring = asList("A", "B", "C", "meta1");
 
 		// Java 8
 		MyRepeatable[] array = MyRepeatableClass.class.getAnnotationsByType(MyRepeatable.class);
@@ -559,8 +606,8 @@ public class AnnotationUtilsTests {
 	@Test
 	public void getRepeatableAnnotationsDeclaredOnSuperclass() {
 		final Class<?> clazz = SubMyRepeatableClass.class;
-		final List<String> expectedValuesJava = Arrays.asList("A", "B", "C");
-		final List<String> expectedValuesSpring = Arrays.asList("A", "B", "C", "meta1");
+		final List<String> expectedValuesJava = asList("A", "B", "C");
+		final List<String> expectedValuesSpring = asList("A", "B", "C", "meta1");
 
 		// Java 8
 		MyRepeatable[] array = clazz.getAnnotationsByType(MyRepeatable.class);
@@ -584,8 +631,8 @@ public class AnnotationUtilsTests {
 	@Test
 	public void getRepeatableAnnotationsDeclaredOnClassAndSuperclass() {
 		final Class<?> clazz = SubMyRepeatableWithAdditionalLocalDeclarationsClass.class;
-		final List<String> expectedValuesJava = Arrays.asList("X", "Y", "Z");
-		final List<String> expectedValuesSpring = Arrays.asList("X", "Y", "Z", "meta2");
+		final List<String> expectedValuesJava = asList("X", "Y", "Z");
+		final List<String> expectedValuesSpring = asList("X", "Y", "Z", "meta2");
 
 		// Java 8
 		MyRepeatable[] array = clazz.getAnnotationsByType(MyRepeatable.class);
@@ -609,8 +656,8 @@ public class AnnotationUtilsTests {
 	@Test
 	public void getRepeatableAnnotationsDeclaredOnMultipleSuperclasses() {
 		final Class<?> clazz = SubSubMyRepeatableWithAdditionalLocalDeclarationsClass.class;
-		final List<String> expectedValuesJava = Arrays.asList("X", "Y", "Z");
-		final List<String> expectedValuesSpring = Arrays.asList("X", "Y", "Z", "meta2");
+		final List<String> expectedValuesJava = asList("X", "Y", "Z");
+		final List<String> expectedValuesSpring = asList("X", "Y", "Z", "meta2");
 
 		// Java 8
 		MyRepeatable[] array = clazz.getAnnotationsByType(MyRepeatable.class);
@@ -633,8 +680,8 @@ public class AnnotationUtilsTests {
 
 	@Test
 	public void getDeclaredRepeatableAnnotationsDeclaredOnClass() {
-		final List<String> expectedValuesJava = Arrays.asList("A", "B", "C");
-		final List<String> expectedValuesSpring = Arrays.asList("A", "B", "C", "meta1");
+		final List<String> expectedValuesJava = asList("A", "B", "C");
+		final List<String> expectedValuesSpring = asList("A", "B", "C", "meta1");
 
 		// Java 8
 		MyRepeatable[] array = MyRepeatableClass.class.getDeclaredAnnotationsByType(MyRepeatable.class);
@@ -676,9 +723,130 @@ public class AnnotationUtilsTests {
 	}
 
 	@Test
-	public void getAliasedAttributeNameFromAliasedComposedAnnotation() throws Exception {
+	public void getAttributeOverrideNameFromWrongTargetAnnotation() throws Exception {
 		Method attribute = AliasedComposedContextConfig.class.getDeclaredMethod("xmlConfigFile");
-		assertEquals("locations", getAliasedAttributeName(attribute, ContextConfig.class));
+		assertThat("xmlConfigFile is not an alias for @Component.",
+			getAttributeOverrideName(attribute, Component.class), is(nullValue()));
+	}
+
+	@Test
+	public void getAttributeOverrideNameForNonAliasedAttribute() throws Exception {
+		Method nonAliasedAttribute = ImplicitAliasesContextConfig.class.getDeclaredMethod("nonAliasedAttribute");
+		assertThat(getAttributeOverrideName(nonAliasedAttribute, ContextConfig.class), is(nullValue()));
+	}
+
+	@Test
+	public void getAttributeOverrideNameFromAliasedComposedAnnotation() throws Exception {
+		Method attribute = AliasedComposedContextConfig.class.getDeclaredMethod("xmlConfigFile");
+		assertEquals("location", getAttributeOverrideName(attribute, ContextConfig.class));
+	}
+
+	@Test
+	public void getAttributeAliasNamesFromComposedAnnotationWithImplicitAliases() throws Exception {
+		Method xmlFile = ImplicitAliasesContextConfig.class.getDeclaredMethod("xmlFile");
+		Method groovyScript = ImplicitAliasesContextConfig.class.getDeclaredMethod("groovyScript");
+		Method value = ImplicitAliasesContextConfig.class.getDeclaredMethod("value");
+		Method location1 = ImplicitAliasesContextConfig.class.getDeclaredMethod("location1");
+		Method location2 = ImplicitAliasesContextConfig.class.getDeclaredMethod("location2");
+		Method location3 = ImplicitAliasesContextConfig.class.getDeclaredMethod("location3");
+
+		// Meta-annotation attribute overrides
+		assertEquals("location", getAttributeOverrideName(xmlFile, ContextConfig.class));
+		assertEquals("location", getAttributeOverrideName(groovyScript, ContextConfig.class));
+		assertEquals("location", getAttributeOverrideName(value, ContextConfig.class));
+
+		// Implicit aliases
+		assertThat(getAttributeAliasNames(xmlFile), containsInAnyOrder("value", "groovyScript", "location1", "location2", "location3"));
+		assertThat(getAttributeAliasNames(groovyScript), containsInAnyOrder("value", "xmlFile", "location1", "location2", "location3"));
+		assertThat(getAttributeAliasNames(value), containsInAnyOrder("xmlFile", "groovyScript", "location1", "location2", "location3"));
+		assertThat(getAttributeAliasNames(location1), containsInAnyOrder("xmlFile", "groovyScript", "value", "location2", "location3"));
+		assertThat(getAttributeAliasNames(location2), containsInAnyOrder("xmlFile", "groovyScript", "value", "location1", "location3"));
+		assertThat(getAttributeAliasNames(location3), containsInAnyOrder("xmlFile", "groovyScript", "value", "location1", "location2"));
+	}
+
+	@Test
+	public void getAttributeAliasNamesFromComposedAnnotationWithImplicitAliasesForAliasPair() throws Exception {
+		Method xmlFile = ImplicitAliasesForAliasPairContextConfig.class.getDeclaredMethod("xmlFile");
+		Method groovyScript = ImplicitAliasesForAliasPairContextConfig.class.getDeclaredMethod("groovyScript");
+
+		// Meta-annotation attribute overrides
+		assertEquals("location", getAttributeOverrideName(xmlFile, ContextConfig.class));
+		assertEquals("value", getAttributeOverrideName(groovyScript, ContextConfig.class));
+
+		// Implicit aliases
+		assertThat(getAttributeAliasNames(xmlFile), containsInAnyOrder("groovyScript"));
+		assertThat(getAttributeAliasNames(groovyScript), containsInAnyOrder("xmlFile"));
+	}
+
+	@Test
+	public void getAttributeAliasNamesFromComposedAnnotationWithImplicitAliasesWithImpliedAliasNamesOmitted()
+			throws Exception {
+
+		Method value = ImplicitAliasesWithImpliedAliasNamesOmittedContextConfig.class.getDeclaredMethod("value");
+		Method location = ImplicitAliasesWithImpliedAliasNamesOmittedContextConfig.class.getDeclaredMethod("location");
+		Method xmlFile = ImplicitAliasesWithImpliedAliasNamesOmittedContextConfig.class.getDeclaredMethod("xmlFile");
+
+		// Meta-annotation attribute overrides
+		assertEquals("value", getAttributeOverrideName(value, ContextConfig.class));
+		assertEquals("location", getAttributeOverrideName(location, ContextConfig.class));
+		assertEquals("location", getAttributeOverrideName(xmlFile, ContextConfig.class));
+
+		// Implicit aliases
+		assertThat(getAttributeAliasNames(value), containsInAnyOrder("location", "xmlFile"));
+		assertThat(getAttributeAliasNames(location), containsInAnyOrder("value", "xmlFile"));
+		assertThat(getAttributeAliasNames(xmlFile), containsInAnyOrder("value", "location"));
+	}
+
+	@Test
+	public void getAttributeAliasNamesFromComposedAnnotationWithTransitiveImplicitAliases() throws Exception {
+		Method xml = TransitiveImplicitAliasesContextConfig.class.getDeclaredMethod("xml");
+		Method groovy = TransitiveImplicitAliasesContextConfig.class.getDeclaredMethod("groovy");
+
+		// Explicit meta-annotation attribute overrides
+		assertEquals("xmlFile", getAttributeOverrideName(xml, ImplicitAliasesContextConfig.class));
+		assertEquals("groovyScript", getAttributeOverrideName(groovy, ImplicitAliasesContextConfig.class));
+
+		// Transitive meta-annotation attribute overrides
+		assertEquals("location", getAttributeOverrideName(xml, ContextConfig.class));
+		assertEquals("location", getAttributeOverrideName(groovy, ContextConfig.class));
+
+		// Transitive implicit aliases
+		assertThat(getAttributeAliasNames(xml), containsInAnyOrder("groovy"));
+		assertThat(getAttributeAliasNames(groovy), containsInAnyOrder("xml"));
+	}
+
+	@Test
+	public void getAttributeAliasNamesFromComposedAnnotationWithTransitiveImplicitAliasesForAliasPair() throws Exception {
+		Method xml = TransitiveImplicitAliasesForAliasPairContextConfig.class.getDeclaredMethod("xml");
+		Method groovy = TransitiveImplicitAliasesForAliasPairContextConfig.class.getDeclaredMethod("groovy");
+
+		// Explicit meta-annotation attribute overrides
+		assertEquals("xmlFile", getAttributeOverrideName(xml, ImplicitAliasesForAliasPairContextConfig.class));
+		assertEquals("groovyScript", getAttributeOverrideName(groovy, ImplicitAliasesForAliasPairContextConfig.class));
+
+		// Transitive implicit aliases
+		assertThat(getAttributeAliasNames(xml), containsInAnyOrder("groovy"));
+		assertThat(getAttributeAliasNames(groovy), containsInAnyOrder("xml"));
+	}
+
+	@Test
+	public void getAttributeAliasNamesFromComposedAnnotationWithTransitiveImplicitAliasesWithImpliedAliasNamesOmitted()
+			throws Exception {
+
+		Method xml = TransitiveImplicitAliasesWithImpliedAliasNamesOmittedContextConfig.class.getDeclaredMethod("xml");
+		Method groovy = TransitiveImplicitAliasesWithImpliedAliasNamesOmittedContextConfig.class.getDeclaredMethod("groovy");
+
+		// Meta-annotation attribute overrides
+		assertEquals("location", getAttributeOverrideName(xml, ContextConfig.class));
+		assertEquals("location", getAttributeOverrideName(groovy, ContextConfig.class));
+
+		// Explicit meta-annotation attribute overrides
+		assertEquals("xmlFile", getAttributeOverrideName(xml, ImplicitAliasesWithImpliedAliasNamesOmittedContextConfig.class));
+		assertEquals("location", getAttributeOverrideName(groovy, ImplicitAliasesWithImpliedAliasNamesOmittedContextConfig.class));
+
+		// Transitive implicit aliases
+		assertThat(getAttributeAliasNames(groovy), containsInAnyOrder("xml"));
+		assertThat(getAttributeAliasNames(xml), containsInAnyOrder("groovy"));
 	}
 
 	@Test
@@ -705,22 +873,21 @@ public class AnnotationUtilsTests {
 		WebMapping synthesizedWebMapping = synthesizeAnnotation(webMapping);
 		assertNotSame(webMapping, synthesizedWebMapping);
 		WebMapping synthesizedAgainWebMapping = synthesizeAnnotation(synthesizedWebMapping);
-		assertSame(synthesizedWebMapping, synthesizedAgainWebMapping);
 		assertThat(synthesizedAgainWebMapping, instanceOf(SynthesizedAnnotation.class));
+		assertSame(synthesizedWebMapping, synthesizedAgainWebMapping);
 
-		assertNotNull(synthesizedAgainWebMapping);
 		assertEquals("name attribute: ", "foo", synthesizedAgainWebMapping.name());
-		assertEquals("aliased path attribute: ", "/test", synthesizedAgainWebMapping.path());
-		assertEquals("actual value attribute: ", "/test", synthesizedAgainWebMapping.value());
+		assertArrayEquals("aliased path attribute: ", asArray("/test"), synthesizedAgainWebMapping.path());
+		assertArrayEquals("actual value attribute: ", asArray("/test"), synthesizedAgainWebMapping.value());
 	}
 
 	@Test
 	public void synthesizeAnnotationWhereAliasForIsMissingAttributeDeclaration() throws Exception {
 		AliasForWithMissingAttributeDeclaration annotation = AliasForWithMissingAttributeDeclarationClass.class.getAnnotation(AliasForWithMissingAttributeDeclaration.class);
 		exception.expect(AnnotationConfigurationException.class);
-		exception.expectMessage(containsString("@AliasFor declaration on attribute [foo] in annotation"));
+		exception.expectMessage(startsWith("@AliasFor declaration on attribute 'foo' in annotation"));
 		exception.expectMessage(containsString(AliasForWithMissingAttributeDeclaration.class.getName()));
-		exception.expectMessage(containsString("is missing required 'attribute' value"));
+		exception.expectMessage(containsString("points to itself"));
 		synthesizeAnnotation(annotation);
 	}
 
@@ -728,10 +895,9 @@ public class AnnotationUtilsTests {
 	public void synthesizeAnnotationWhereAliasForHasDuplicateAttributeDeclaration() throws Exception {
 		AliasForWithDuplicateAttributeDeclaration annotation = AliasForWithDuplicateAttributeDeclarationClass.class.getAnnotation(AliasForWithDuplicateAttributeDeclaration.class);
 		exception.expect(AnnotationConfigurationException.class);
-		exception.expectMessage(containsString("In @AliasFor declared on attribute [foo] in annotation"));
+		exception.expectMessage(startsWith("In @AliasFor declared on attribute 'foo' in annotation"));
 		exception.expectMessage(containsString(AliasForWithDuplicateAttributeDeclaration.class.getName()));
 		exception.expectMessage(containsString("attribute 'attribute' and its alias 'value' are present with values of [baz] and [bar]"));
-		exception.expectMessage(containsString("but only one is permitted"));
 		synthesizeAnnotation(annotation);
 	}
 
@@ -739,9 +905,9 @@ public class AnnotationUtilsTests {
 	public void synthesizeAnnotationWithAttributeAliasForNonexistentAttribute() throws Exception {
 		AliasForNonexistentAttribute annotation = AliasForNonexistentAttributeClass.class.getAnnotation(AliasForNonexistentAttribute.class);
 		exception.expect(AnnotationConfigurationException.class);
-		exception.expectMessage(containsString("Attribute [foo] in"));
+		exception.expectMessage(startsWith("Attribute 'foo' in"));
 		exception.expectMessage(containsString(AliasForNonexistentAttribute.class.getName()));
-		exception.expectMessage(containsString("is declared as an @AliasFor nonexistent attribute [bar]"));
+		exception.expectMessage(containsString("is declared as an @AliasFor nonexistent attribute 'bar'"));
 		synthesizeAnnotation(annotation);
 	}
 
@@ -750,9 +916,9 @@ public class AnnotationUtilsTests {
 		AliasForWithoutMirroredAliasFor annotation =
 				AliasForWithoutMirroredAliasForClass.class.getAnnotation(AliasForWithoutMirroredAliasFor.class);
 		exception.expect(AnnotationConfigurationException.class);
-		exception.expectMessage(containsString("Attribute [bar] in"));
+		exception.expectMessage(startsWith("Attribute 'bar' in"));
 		exception.expectMessage(containsString(AliasForWithoutMirroredAliasFor.class.getName()));
-		exception.expectMessage(containsString("must be declared as an @AliasFor [foo]"));
+		exception.expectMessage(containsString("@AliasFor [foo]"));
 		synthesizeAnnotation(annotation);
 	}
 
@@ -761,15 +927,11 @@ public class AnnotationUtilsTests {
 		AliasForWithMirroredAliasForWrongAttribute annotation =
 				AliasForWithMirroredAliasForWrongAttributeClass.class.getAnnotation(AliasForWithMirroredAliasForWrongAttribute.class);
 
-		// Since JDK 7+ does not guarantee consistent ordering of methods returned using
-		// reflection, we cannot make the test dependent on any specific ordering.
-		// In other words, we can't be certain which type of exception message we'll get,
-		// so we allow for both possibilities.
 		exception.expect(AnnotationConfigurationException.class);
-		exception.expectMessage(containsString("Attribute [bar] in"));
+		exception.expectMessage(startsWith("Attribute 'bar' in"));
 		exception.expectMessage(containsString(AliasForWithMirroredAliasForWrongAttribute.class.getName()));
 		exception.expectMessage(either(containsString("must be declared as an @AliasFor [foo], not [quux]")).
-			or(containsString("is declared as an @AliasFor nonexistent attribute [quux]")));
+				or(containsString("is declared as an @AliasFor nonexistent attribute 'quux'")));
 		synthesizeAnnotation(annotation);
 	}
 
@@ -780,13 +942,9 @@ public class AnnotationUtilsTests {
 		exception.expect(AnnotationConfigurationException.class);
 		exception.expectMessage(startsWith("Misconfigured aliases"));
 		exception.expectMessage(containsString(AliasForAttributeOfDifferentType.class.getName()));
-
-		// Since JDK 7+ does not guarantee consistent ordering of methods returned using
-		// reflection, we cannot make the test dependent on any specific ordering.
-		// In other words, we don't know if "foo" or "bar" will come first.
-		exception.expectMessage(containsString("attribute [foo]"));
-		exception.expectMessage(containsString("attribute [bar]"));
-		exception.expectMessage(containsString("must declare the same return type"));
+		exception.expectMessage(containsString("attribute 'foo'"));
+		exception.expectMessage(containsString("attribute 'bar'"));
+		exception.expectMessage(containsString("same return type"));
 		synthesizeAnnotation(annotation);
 	}
 
@@ -794,15 +952,12 @@ public class AnnotationUtilsTests {
 	public void synthesizeAnnotationWithAttributeAliasForWithMissingDefaultValues() throws Exception {
 		AliasForWithMissingDefaultValues annotation =
 				AliasForWithMissingDefaultValuesClass.class.getAnnotation(AliasForWithMissingDefaultValues.class);
+		exception.expect(AnnotationConfigurationException.class);
 		exception.expectMessage(startsWith("Misconfigured aliases"));
 		exception.expectMessage(containsString(AliasForWithMissingDefaultValues.class.getName()));
-
-		// Since JDK 7+ does not guarantee consistent ordering of methods returned using
-		// reflection, we cannot make the test dependent on any specific ordering.
-		// In other words, we don't know if "foo" or "bar" will come first.
-		exception.expectMessage(containsString("attribute [foo]"));
-		exception.expectMessage(containsString("attribute [bar]"));
-		exception.expectMessage(containsString("must declare default values"));
+		exception.expectMessage(containsString("attribute 'foo' in annotation"));
+		exception.expectMessage(containsString("attribute 'bar' in annotation"));
+		exception.expectMessage(containsString("default values"));
 		synthesizeAnnotation(annotation);
 	}
 
@@ -810,15 +965,25 @@ public class AnnotationUtilsTests {
 	public void synthesizeAnnotationWithAttributeAliasForAttributeWithDifferentDefaultValue() throws Exception {
 		AliasForAttributeWithDifferentDefaultValue annotation =
 				AliasForAttributeWithDifferentDefaultValueClass.class.getAnnotation(AliasForAttributeWithDifferentDefaultValue.class);
+		exception.expect(AnnotationConfigurationException.class);
 		exception.expectMessage(startsWith("Misconfigured aliases"));
 		exception.expectMessage(containsString(AliasForAttributeWithDifferentDefaultValue.class.getName()));
+		exception.expectMessage(containsString("attribute 'foo' in annotation"));
+		exception.expectMessage(containsString("attribute 'bar' in annotation"));
+		exception.expectMessage(containsString("same default value"));
+		synthesizeAnnotation(annotation);
+	}
 
-		// Since JDK 7+ does not guarantee consistent ordering of methods returned using
-		// reflection, we cannot make the test dependent on any specific ordering.
-		// In other words, we don't know if "foo" or "bar" will come first.
-		exception.expectMessage(containsString("attribute [foo]"));
-		exception.expectMessage(containsString("attribute [bar]"));
-		exception.expectMessage(containsString("must declare the same default value"));
+	@Test
+	public void synthesizeAnnotationWithAttributeAliasForMetaAnnotationThatIsNotMetaPresent() throws Exception {
+		AliasedComposedContextConfigNotMetaPresent annotation =
+				AliasedComposedContextConfigNotMetaPresentClass.class.getAnnotation(AliasedComposedContextConfigNotMetaPresent.class);
+		exception.expect(AnnotationConfigurationException.class);
+		exception.expectMessage(startsWith("@AliasFor declaration on attribute 'xmlConfigFile' in annotation"));
+		exception.expectMessage(containsString(AliasedComposedContextConfigNotMetaPresent.class.getName()));
+		exception.expectMessage(containsString("declares an alias for attribute 'location' in meta-annotation"));
+		exception.expectMessage(containsString(ContextConfig.class.getName()));
+		exception.expectMessage(containsString("not meta-present"));
 		synthesizeAnnotation(annotation);
 	}
 
@@ -829,22 +994,161 @@ public class AnnotationUtilsTests {
 		assertNotNull(webMapping);
 
 		WebMapping synthesizedWebMapping1 = synthesizeAnnotation(webMapping);
-		assertNotNull(synthesizedWebMapping1);
-		assertNotSame(webMapping, synthesizedWebMapping1);
 		assertThat(synthesizedWebMapping1, instanceOf(SynthesizedAnnotation.class));
+		assertNotSame(webMapping, synthesizedWebMapping1);
 
 		assertEquals("name attribute: ", "foo", synthesizedWebMapping1.name());
-		assertEquals("aliased path attribute: ", "/test", synthesizedWebMapping1.path());
-		assertEquals("actual value attribute: ", "/test", synthesizedWebMapping1.value());
+		assertArrayEquals("aliased path attribute: ", asArray("/test"), synthesizedWebMapping1.path());
+		assertArrayEquals("actual value attribute: ", asArray("/test"), synthesizedWebMapping1.value());
 
 		WebMapping synthesizedWebMapping2 = synthesizeAnnotation(webMapping);
-		assertNotNull(synthesizedWebMapping2);
-		assertNotSame(webMapping, synthesizedWebMapping2);
 		assertThat(synthesizedWebMapping2, instanceOf(SynthesizedAnnotation.class));
+		assertNotSame(webMapping, synthesizedWebMapping2);
 
 		assertEquals("name attribute: ", "foo", synthesizedWebMapping2.name());
-		assertEquals("aliased path attribute: ", "/test", synthesizedWebMapping2.path());
-		assertEquals("actual value attribute: ", "/test", synthesizedWebMapping2.value());
+		assertArrayEquals("aliased path attribute: ", asArray("/test"), synthesizedWebMapping2.path());
+		assertArrayEquals("actual value attribute: ", asArray("/test"), synthesizedWebMapping2.value());
+	}
+
+	@Test
+	public void synthesizeAnnotationWithImplicitAliases() throws Exception {
+		assertAnnotationSynthesisWithImplicitAliases(ValueImplicitAliasesContextConfigClass.class, "value");
+		assertAnnotationSynthesisWithImplicitAliases(Location1ImplicitAliasesContextConfigClass.class, "location1");
+		assertAnnotationSynthesisWithImplicitAliases(XmlImplicitAliasesContextConfigClass.class, "xmlFile");
+		assertAnnotationSynthesisWithImplicitAliases(GroovyImplicitAliasesContextConfigClass.class, "groovyScript");
+	}
+
+	private void assertAnnotationSynthesisWithImplicitAliases(Class<?> clazz, String expected) throws Exception {
+		ImplicitAliasesContextConfig config = clazz.getAnnotation(ImplicitAliasesContextConfig.class);
+		assertNotNull(config);
+
+		ImplicitAliasesContextConfig synthesizedConfig = synthesizeAnnotation(config);
+		assertThat(synthesizedConfig, instanceOf(SynthesizedAnnotation.class));
+
+		assertEquals("value: ", expected, synthesizedConfig.value());
+		assertEquals("location1: ", expected, synthesizedConfig.location1());
+		assertEquals("xmlFile: ", expected, synthesizedConfig.xmlFile());
+		assertEquals("groovyScript: ", expected, synthesizedConfig.groovyScript());
+	}
+
+	@Test
+	public void synthesizeAnnotationWithImplicitAliasesWithImpliedAliasNamesOmitted() throws Exception {
+		assertAnnotationSynthesisWithImplicitAliasesWithImpliedAliasNamesOmitted(
+			ValueImplicitAliasesWithImpliedAliasNamesOmittedContextConfigClass.class, "value");
+		assertAnnotationSynthesisWithImplicitAliasesWithImpliedAliasNamesOmitted(
+			LocationsImplicitAliasesWithImpliedAliasNamesOmittedContextConfigClass.class, "location");
+		assertAnnotationSynthesisWithImplicitAliasesWithImpliedAliasNamesOmitted(
+			XmlFilesImplicitAliasesWithImpliedAliasNamesOmittedContextConfigClass.class, "xmlFile");
+	}
+
+	private void assertAnnotationSynthesisWithImplicitAliasesWithImpliedAliasNamesOmitted(Class<?> clazz,
+			String expected) throws Exception {
+
+		ImplicitAliasesWithImpliedAliasNamesOmittedContextConfig config = clazz.getAnnotation(
+			ImplicitAliasesWithImpliedAliasNamesOmittedContextConfig.class);
+		assertNotNull(config);
+
+		ImplicitAliasesWithImpliedAliasNamesOmittedContextConfig synthesizedConfig = synthesizeAnnotation(config);
+		assertThat(synthesizedConfig, instanceOf(SynthesizedAnnotation.class));
+
+		assertEquals("value: ", expected, synthesizedConfig.value());
+		assertEquals("locations: ", expected, synthesizedConfig.location());
+		assertEquals("xmlFiles: ", expected, synthesizedConfig.xmlFile());
+	}
+
+	@Test
+	public void synthesizeAnnotationWithImplicitAliasesForAliasPair() throws Exception {
+		Class<?> clazz = ImplicitAliasesForAliasPairContextConfigClass.class;
+		ImplicitAliasesForAliasPairContextConfig config = clazz.getAnnotation(ImplicitAliasesForAliasPairContextConfig.class);
+		assertNotNull(config);
+
+		ImplicitAliasesForAliasPairContextConfig synthesizedConfig = synthesizeAnnotation(config);
+		assertThat(synthesizedConfig, instanceOf(SynthesizedAnnotation.class));
+
+		assertEquals("xmlFile: ", "test.xml", synthesizedConfig.xmlFile());
+		assertEquals("groovyScript: ", "test.xml", synthesizedConfig.groovyScript());
+	}
+
+	@Test
+	public void synthesizeAnnotationWithTransitiveImplicitAliases() throws Exception {
+		Class<?> clazz = TransitiveImplicitAliasesContextConfigClass.class;
+		TransitiveImplicitAliasesContextConfig config = clazz.getAnnotation(TransitiveImplicitAliasesContextConfig.class);
+		assertNotNull(config);
+
+		TransitiveImplicitAliasesContextConfig synthesizedConfig = synthesizeAnnotation(config);
+		assertThat(synthesizedConfig, instanceOf(SynthesizedAnnotation.class));
+
+		assertEquals("xml: ", "test.xml", synthesizedConfig.xml());
+		assertEquals("groovy: ", "test.xml", synthesizedConfig.groovy());
+	}
+
+	@Test
+	public void synthesizeAnnotationWithTransitiveImplicitAliasesForAliasPair() throws Exception {
+		Class<?> clazz = TransitiveImplicitAliasesForAliasPairContextConfigClass.class;
+		TransitiveImplicitAliasesForAliasPairContextConfig config = clazz.getAnnotation(TransitiveImplicitAliasesForAliasPairContextConfig.class);
+		assertNotNull(config);
+
+		TransitiveImplicitAliasesForAliasPairContextConfig synthesizedConfig = synthesizeAnnotation(config);
+		assertThat(synthesizedConfig, instanceOf(SynthesizedAnnotation.class));
+
+		assertEquals("xml: ", "test.xml", synthesizedConfig.xml());
+		assertEquals("groovy: ", "test.xml", synthesizedConfig.groovy());
+	}
+
+	@Test
+	public void synthesizeAnnotationWithImplicitAliasesWithMissingDefaultValues() throws Exception {
+		Class<?> clazz = ImplicitAliasesWithMissingDefaultValuesContextConfigClass.class;
+		Class<ImplicitAliasesWithMissingDefaultValuesContextConfig> annotationType = ImplicitAliasesWithMissingDefaultValuesContextConfig.class;
+		ImplicitAliasesWithMissingDefaultValuesContextConfig config = clazz.getAnnotation(annotationType);
+		assertNotNull(config);
+
+		exception.expect(AnnotationConfigurationException.class);
+		exception.expectMessage(startsWith("Misconfigured aliases:"));
+		exception.expectMessage(containsString("attribute 'location1' in annotation [" + annotationType.getName() + "]"));
+		exception.expectMessage(containsString("attribute 'location2' in annotation [" + annotationType.getName() + "]"));
+		exception.expectMessage(containsString("default values"));
+
+		synthesizeAnnotation(config, clazz);
+	}
+
+	@Test
+	public void synthesizeAnnotationWithImplicitAliasesWithDifferentDefaultValues() throws Exception {
+		Class<?> clazz = ImplicitAliasesWithDifferentDefaultValuesContextConfigClass.class;
+		Class<ImplicitAliasesWithDifferentDefaultValuesContextConfig> annotationType = ImplicitAliasesWithDifferentDefaultValuesContextConfig.class;
+		ImplicitAliasesWithDifferentDefaultValuesContextConfig config = clazz.getAnnotation(annotationType);
+		assertNotNull(config);
+
+		exception.expect(AnnotationConfigurationException.class);
+		exception.expectMessage(startsWith("Misconfigured aliases:"));
+		exception.expectMessage(containsString("attribute 'location1' in annotation [" + annotationType.getName() + "]"));
+		exception.expectMessage(containsString("attribute 'location2' in annotation [" + annotationType.getName() + "]"));
+		exception.expectMessage(containsString("same default value"));
+
+		synthesizeAnnotation(config, clazz);
+	}
+
+	@Test
+	public void synthesizeAnnotationWithImplicitAliasesWithDuplicateValues() throws Exception {
+		Class<?> clazz = ImplicitAliasesWithDuplicateValuesContextConfigClass.class;
+		Class<ImplicitAliasesWithDuplicateValuesContextConfig> annotationType = ImplicitAliasesWithDuplicateValuesContextConfig.class;
+		ImplicitAliasesWithDuplicateValuesContextConfig config = clazz.getAnnotation(annotationType);
+		assertNotNull(config);
+
+		ImplicitAliasesWithDuplicateValuesContextConfig synthesizedConfig = synthesizeAnnotation(config, clazz);
+		assertNotNull(synthesizedConfig);
+
+		exception.expect(AnnotationConfigurationException.class);
+		exception.expectMessage(startsWith("In annotation"));
+		exception.expectMessage(containsString(annotationType.getName()));
+		exception.expectMessage(containsString("declared on class"));
+		exception.expectMessage(containsString(clazz.getName()));
+		exception.expectMessage(containsString("and synthesized from"));
+		exception.expectMessage(either(containsString("attribute 'location1' and its alias 'location2'")).or(
+				containsString("attribute 'location2' and its alias 'location1'")));
+		exception.expectMessage(either(containsString("are present with values of [1] and [2]")).or(
+				containsString("are present with values of [2] and [1]")));
+
+		synthesizedConfig.location1();
 	}
 
 	@Test
@@ -852,14 +1156,71 @@ public class AnnotationUtilsTests {
 		Component component = WebController.class.getAnnotation(Component.class);
 		assertNotNull(component);
 
-		Map<String, Object> map = new HashMap<String, Object>();
-		map.put(VALUE, "webController");
+		Map<String, Object> map = Collections.singletonMap(VALUE, "webController");
 		Component synthesizedComponent = synthesizeAnnotation(map, Component.class, WebController.class);
 		assertNotNull(synthesizedComponent);
 
 		assertNotSame(component, synthesizedComponent);
 		assertEquals("value from component: ", "webController", component.value());
 		assertEquals("value from synthesized component: ", "webController", synthesizedComponent.value());
+	}
+
+	@Test
+	@SuppressWarnings("unchecked")
+	public void synthesizeAnnotationFromMapWithNestedMap() throws Exception {
+		ComponentScanSingleFilter componentScan = ComponentScanSingleFilterClass.class.getAnnotation(ComponentScanSingleFilter.class);
+		assertNotNull(componentScan);
+		assertEquals("value from ComponentScan: ", "*Foo", componentScan.value().pattern());
+
+		AnnotationAttributes attributes = getAnnotationAttributes(
+				ComponentScanSingleFilterClass.class, componentScan, false, true);
+		assertNotNull(attributes);
+		assertEquals(ComponentScanSingleFilter.class, attributes.annotationType());
+
+		Map<String, Object> filterMap = (Map<String, Object>) attributes.get("value");
+		assertNotNull(filterMap);
+		assertEquals("*Foo", filterMap.get("pattern"));
+
+		// Modify nested map
+		filterMap.put("pattern", "newFoo");
+		filterMap.put("enigma", 42);
+
+		ComponentScanSingleFilter synthesizedComponentScan = synthesizeAnnotation(
+				attributes, ComponentScanSingleFilter.class, ComponentScanSingleFilterClass.class);
+		assertNotNull(synthesizedComponentScan);
+
+		assertNotSame(componentScan, synthesizedComponentScan);
+		assertEquals("value from synthesized ComponentScan: ", "newFoo", synthesizedComponentScan.value().pattern());
+	}
+
+	@Test
+	@SuppressWarnings("unchecked")
+	public void synthesizeAnnotationFromMapWithNestedArrayOfMaps() throws Exception {
+		ComponentScan componentScan = ComponentScanClass.class.getAnnotation(ComponentScan.class);
+		assertNotNull(componentScan);
+
+		AnnotationAttributes attributes = getAnnotationAttributes(ComponentScanClass.class, componentScan, false, true);
+		assertNotNull(attributes);
+		assertEquals(ComponentScan.class, attributes.annotationType());
+
+		Map<String, Object>[] filters = (Map[]) attributes.get("excludeFilters");
+		assertNotNull(filters);
+
+		List<String> patterns = stream(filters).map(m -> (String) m.get("pattern")).collect(toList());
+		assertEquals(asList("*Foo", "*Bar"), patterns);
+
+		// Modify nested maps
+		filters[0].put("pattern", "newFoo");
+		filters[0].put("enigma", 42);
+		filters[1].put("pattern", "newBar");
+		filters[1].put("enigma", 42);
+
+		ComponentScan synthesizedComponentScan = synthesizeAnnotation(attributes, ComponentScan.class, ComponentScanClass.class);
+		assertNotNull(synthesizedComponentScan);
+
+		assertNotSame(componentScan, synthesizedComponentScan);
+		patterns = stream(synthesizedComponentScan.excludeFilters()).map(Filter::pattern).collect(toList());
+		assertEquals(asList("newFoo", "newBar"), patterns);
 	}
 
 	@Test
@@ -876,17 +1237,53 @@ public class AnnotationUtilsTests {
 		ContextConfig contextConfig = synthesizeAnnotation(ContextConfig.class);
 		assertNotNull(contextConfig);
 		assertEquals("value: ", "", contextConfig.value());
-		assertEquals("locations: ", "", contextConfig.locations());
+		assertEquals("location: ", "", contextConfig.location());
 	}
 
 	@Test
 	public void synthesizeAnnotationFromMapWithMinimalAttributesWithAttributeAliases() throws Exception {
-		Map<String, Object> map = new HashMap<String, Object>();
-		map.put("locations", "test.xml");
+		Map<String, Object> map = Collections.singletonMap("location", "test.xml");
 		ContextConfig contextConfig = synthesizeAnnotation(map, ContextConfig.class, null);
 		assertNotNull(contextConfig);
 		assertEquals("value: ", "test.xml", contextConfig.value());
-		assertEquals("locations: ", "test.xml", contextConfig.locations());
+		assertEquals("location: ", "test.xml", contextConfig.location());
+	}
+
+	@Test
+	public void synthesizeAnnotationFromMapWithAttributeAliasesThatOverrideArraysWithSingleElements() throws Exception {
+		Map<String, Object> map = Collections.singletonMap("value", "/foo");
+		Get get = synthesizeAnnotation(map, Get.class, null);
+		assertNotNull(get);
+		assertEquals("value: ", "/foo", get.value());
+		assertEquals("path: ", "/foo", get.path());
+
+		map = Collections.singletonMap("path", "/foo");
+		get = synthesizeAnnotation(map, Get.class, null);
+		assertNotNull(get);
+		assertEquals("value: ", "/foo", get.value());
+		assertEquals("path: ", "/foo", get.path());
+	}
+
+	@Test
+	public void synthesizeAnnotationFromMapWithImplicitAttributeAliases() throws Exception {
+		assertAnnotationSynthesisFromMapWithImplicitAliases("value");
+		assertAnnotationSynthesisFromMapWithImplicitAliases("location1");
+		assertAnnotationSynthesisFromMapWithImplicitAliases("location2");
+		assertAnnotationSynthesisFromMapWithImplicitAliases("location3");
+		assertAnnotationSynthesisFromMapWithImplicitAliases("xmlFile");
+		assertAnnotationSynthesisFromMapWithImplicitAliases("groovyScript");
+	}
+
+	private void assertAnnotationSynthesisFromMapWithImplicitAliases(String attributeNameAndValue) throws Exception {
+		Map<String, Object> map = Collections.singletonMap(attributeNameAndValue, attributeNameAndValue);
+		ImplicitAliasesContextConfig config = synthesizeAnnotation(map, ImplicitAliasesContextConfig.class, null);
+		assertNotNull(config);
+		assertEquals("value: ", attributeNameAndValue, config.value());
+		assertEquals("location1: ", attributeNameAndValue, config.location1());
+		assertEquals("location2: ", attributeNameAndValue, config.location2());
+		assertEquals("location3: ", attributeNameAndValue, config.location3());
+		assertEquals("xmlFile: ", attributeNameAndValue, config.xmlFile());
+		assertEquals("groovyScript: ", attributeNameAndValue, config.groovyScript());
 	}
 
 	@Test
@@ -896,8 +1293,7 @@ public class AnnotationUtilsTests {
 
 	@Test
 	public void synthesizeAnnotationFromMapWithNullAttributeValue() throws Exception {
-		Map<String, Object> map = new HashMap<String, Object>();
-		map.put("text", null);
+		Map<String, Object> map = Collections.singletonMap("text", null);
 		assertTrue(map.containsKey("text"));
 		assertMissingTextAttribute(map);
 	}
@@ -905,28 +1301,27 @@ public class AnnotationUtilsTests {
 	private void assertMissingTextAttribute(Map<String, Object> attributes) {
 		exception.expect(IllegalArgumentException.class);
 		exception.expectMessage(startsWith("Attributes map"));
-		exception.expectMessage(containsString("returned null for required attribute [text]"));
+		exception.expectMessage(containsString("returned null for required attribute 'text'"));
 		exception.expectMessage(containsString("defined by annotation type [" + AnnotationWithoutDefaults.class.getName() + "]"));
 		synthesizeAnnotation(attributes, AnnotationWithoutDefaults.class, null);
 	}
 
 	@Test
 	public void synthesizeAnnotationFromMapWithAttributeOfIncorrectType() throws Exception {
-		Map<String, Object> map = new HashMap<String, Object>();
-		map.put(VALUE, 42L);
+		Map<String, Object> map = Collections.singletonMap(VALUE, 42L);
 
 		exception.expect(IllegalArgumentException.class);
 		exception.expectMessage(startsWith("Attributes map"));
 		exception.expectMessage(containsString("returned a value of type [java.lang.Long]"));
-		exception.expectMessage(containsString("for attribute [value]"));
+		exception.expectMessage(containsString("for attribute 'value'"));
 		exception.expectMessage(containsString("but a value of type [java.lang.String] is required"));
 		exception.expectMessage(containsString("as defined by annotation type [" + Component.class.getName() + "]"));
+
 		synthesizeAnnotation(map, Component.class, null);
 	}
 
 	@Test
 	public void synthesizeAnnotationFromAnnotationAttributesWithoutAttributeAliases() throws Exception {
-
 		// 1) Get an annotation
 		Component component = WebController.class.getAnnotation(Component.class);
 		assertNotNull(component);
@@ -962,11 +1357,6 @@ public class AnnotationUtilsTests {
 		assertNotNull(synthesizedWebMapping2);
 
 		assertThat(webMappingWithAliases.toString(), is(not(synthesizedWebMapping1.toString())));
-
-		// The unsynthesized annotation for handleMappedWithSamePathAndValueAttributes()
-		// should produce the same toString() results as synthesized annotations for
-		// handleMappedWithPathAttribute()
-		assertToStringForWebMappingWithPathAndValue(webMappingWithPathAndValue);
 		assertToStringForWebMappingWithPathAndValue(synthesizedWebMapping1);
 		assertToStringForWebMappingWithPathAndValue(synthesizedWebMapping2);
 	}
@@ -974,8 +1364,8 @@ public class AnnotationUtilsTests {
 	private void assertToStringForWebMappingWithPathAndValue(WebMapping webMapping) {
 		String string = webMapping.toString();
 		assertThat(string, startsWith("@" + WebMapping.class.getName() + "("));
-		assertThat(string, containsString("value=/test"));
-		assertThat(string, containsString("path=/test"));
+		assertThat(string, containsString("value=[/test]"));
+		assertThat(string, containsString("path=[/test]"));
 		assertThat(string, containsString("name=bar"));
 		assertThat(string, containsString("method="));
 		assertThat(string, containsString("[GET, POST]"));
@@ -1085,7 +1475,7 @@ public class AnnotationUtilsTests {
 
 	@Test
 	public void synthesizeAnnotationWithAttributeAliasesInNestedAnnotations() throws Exception {
-		List<String> expectedLocations = Arrays.asList("A", "B");
+		List<String> expectedLocations = asList("A", "B");
 
 		Hierarchy hierarchy = ConfigHierarchyTestCase.class.getAnnotation(Hierarchy.class);
 		assertNotNull(hierarchy);
@@ -1096,18 +1486,18 @@ public class AnnotationUtilsTests {
 		ContextConfig[] configs = synthesizedHierarchy.value();
 		assertNotNull(configs);
 		assertTrue("nested annotations must be synthesized",
-				Arrays.stream(configs).allMatch(c -> c instanceof SynthesizedAnnotation));
+				stream(configs).allMatch(c -> c instanceof SynthesizedAnnotation));
 
-		List<String> locations = Arrays.stream(configs).map(ContextConfig::locations).collect(toList());
+		List<String> locations = stream(configs).map(ContextConfig::location).collect(toList());
 		assertThat(locations, is(expectedLocations));
 
-		List<String> values = Arrays.stream(configs).map(ContextConfig::value).collect(toList());
+		List<String> values = stream(configs).map(ContextConfig::value).collect(toList());
 		assertThat(values, is(expectedLocations));
 	}
 
 	@Test
 	public void synthesizeAnnotationWithArrayOfAnnotations() throws Exception {
-		List<String> expectedLocations = Arrays.asList("A", "B");
+		List<String> expectedLocations = asList("A", "B");
 
 		Hierarchy hierarchy = ConfigHierarchyTestCase.class.getAnnotation(Hierarchy.class);
 		assertNotNull(hierarchy);
@@ -1118,7 +1508,7 @@ public class AnnotationUtilsTests {
 		assertNotNull(contextConfig);
 
 		ContextConfig[] configs = synthesizedHierarchy.value();
-		List<String> locations = Arrays.stream(configs).map(ContextConfig::locations).collect(toList());
+		List<String> locations = stream(configs).map(ContextConfig::location).collect(toList());
 		assertThat(locations, is(expectedLocations));
 
 		// Alter array returned from synthesized annotation
@@ -1126,7 +1516,7 @@ public class AnnotationUtilsTests {
 
 		// Re-retrieve the array from the synthesized annotation
 		configs = synthesizedHierarchy.value();
-		List<String> values = Arrays.stream(configs).map(ContextConfig::value).collect(toList());
+		List<String> values = stream(configs).map(ContextConfig::value).collect(toList());
 		assertThat(values, is(expectedLocations));
 	}
 
@@ -1146,6 +1536,18 @@ public class AnnotationUtilsTests {
 		// Re-retrieve the array from the synthesized annotation
 		chars = synthesizedCharsContainer.chars();
 		assertArrayEquals(new char[] { 'x', 'y', 'z' }, chars);
+	}
+
+	@SafeVarargs
+	// The following "varargs" suppression is necessary for javac from OpenJDK
+	// (1.8.0_60-b27); however, Eclipse warns that it's unnecessary. See the following
+	// Eclipse issues for details.
+	//
+	// https://bugs.eclipse.org/bugs/show_bug.cgi?id=344783
+	// https://bugs.eclipse.org/bugs/show_bug.cgi?id=349669#c10
+	// @SuppressWarnings("varargs")
+	static <T> T[] asArray(T... arr) {
+		return arr;
 	}
 
 
@@ -1455,12 +1857,38 @@ public class AnnotationUtilsTests {
 		String name();
 
 		@AliasFor("path")
-		String value() default "";
+		String[] value() default "";
 
 		@AliasFor(attribute = "value")
-		String path() default "";
+		String[] path() default "";
 
 		RequestMethod[] method() default {};
+	}
+
+	/**
+	 * Mock of {@code org.springframework.web.bind.annotation.GetMapping}, except
+	 * that the String arrays are overridden with single String elements.
+	 */
+	@Retention(RetentionPolicy.RUNTIME)
+	@WebMapping(method = RequestMethod.GET, name = "")
+	@interface Get {
+
+		@AliasFor(annotation = WebMapping.class)
+		String value() default "";
+
+		@AliasFor(annotation = WebMapping.class)
+		String path() default "";
+	}
+
+	/**
+	 * Mock of {@code org.springframework.web.bind.annotation.PostMapping}, except
+	 * that the path is overridden by convention with single String element.
+	 */
+	@Retention(RetentionPolicy.RUNTIME)
+	@WebMapping(method = RequestMethod.POST, name = "")
+	@interface Post {
+
+		String path() default "";
 	}
 
 	@Component("webController")
@@ -1472,6 +1900,18 @@ public class AnnotationUtilsTests {
 
 		@WebMapping(path = "/test", name = "bar", method = { RequestMethod.GET, RequestMethod.POST })
 		public void handleMappedWithPathAttribute() {
+		}
+
+		@Get("/test")
+		public void getMappedWithValueAttribute() {
+		}
+
+		@Get(path = "/test")
+		public void getMappedWithPathAttribute() {
+		}
+
+		@Post(path = "/test")
+		public void postMappedWithPathAttribute() {
 		}
 
 		/**
@@ -1492,22 +1932,24 @@ public class AnnotationUtilsTests {
 	@Retention(RetentionPolicy.RUNTIME)
 	@interface ContextConfig {
 
-		@AliasFor("locations")
+		@AliasFor("location")
 		String value() default "";
 
 		@AliasFor("value")
-		String locations() default "";
+		String location() default "";
+
+		Class<?> klass() default Object.class;
 	}
 
 	@Retention(RetentionPolicy.RUNTIME)
 	@interface BrokenContextConfig {
 
 		// Intentionally missing:
-		// @AliasFor("locations")
+		// @AliasFor("location")
 		String value() default "";
 
 		@AliasFor("value")
-		String locations() default "";
+		String location() default "";
 	}
 
 	/**
@@ -1523,7 +1965,7 @@ public class AnnotationUtilsTests {
 		BrokenContextConfig[] value();
 	}
 
-	@Hierarchy({ @ContextConfig("A"), @ContextConfig(locations = "B") })
+	@Hierarchy({ @ContextConfig("A"), @ContextConfig(location = "B") })
 	static class ConfigHierarchyTestCase {
 	}
 
@@ -1652,12 +2094,214 @@ public class AnnotationUtilsTests {
 	static class AliasForAttributeWithDifferentDefaultValueClass {
 	}
 
+	// @ContextConfig --> Intentionally NOT meta-present
+	@Retention(RetentionPolicy.RUNTIME)
+	@interface AliasedComposedContextConfigNotMetaPresent {
+
+		@AliasFor(annotation = ContextConfig.class, attribute = "location")
+		String xmlConfigFile();
+	}
+
+	@AliasedComposedContextConfigNotMetaPresent(xmlConfigFile = "test.xml")
+	static class AliasedComposedContextConfigNotMetaPresentClass {
+	}
+
 	@ContextConfig
 	@Retention(RetentionPolicy.RUNTIME)
 	@interface AliasedComposedContextConfig {
 
-		@AliasFor(annotation = ContextConfig.class, attribute = "locations")
+		@AliasFor(annotation = ContextConfig.class, attribute = "location")
 		String xmlConfigFile();
+	}
+
+	@ContextConfig
+	@Retention(RetentionPolicy.RUNTIME)
+	public @interface ImplicitAliasesContextConfig {
+
+		@AliasFor(annotation = ContextConfig.class, attribute = "location")
+		String xmlFile() default "";
+
+		@AliasFor(annotation = ContextConfig.class, attribute = "location")
+		String groovyScript() default "";
+
+		@AliasFor(annotation = ContextConfig.class, attribute = "location")
+		String value() default "";
+
+		@AliasFor(annotation = ContextConfig.class, attribute = "location")
+		String location1() default "";
+
+		@AliasFor(annotation = ContextConfig.class, attribute = "location")
+		String location2() default "";
+
+		@AliasFor(annotation = ContextConfig.class, attribute = "location")
+		String location3() default "";
+
+		@AliasFor(annotation = ContextConfig.class, attribute = "klass")
+		Class<?> configClass() default Object.class;
+
+		String nonAliasedAttribute() default "";
+	}
+
+	// Attribute value intentionally matches attribute name:
+	@ImplicitAliasesContextConfig(groovyScript = "groovyScript")
+	static class GroovyImplicitAliasesContextConfigClass {
+	}
+
+	// Attribute value intentionally matches attribute name:
+	@ImplicitAliasesContextConfig(xmlFile = "xmlFile")
+	static class XmlImplicitAliasesContextConfigClass {
+	}
+
+	// Attribute value intentionally matches attribute name:
+	@ImplicitAliasesContextConfig("value")
+	static class ValueImplicitAliasesContextConfigClass {
+	}
+
+	// Attribute value intentionally matches attribute name:
+	@ImplicitAliasesContextConfig(location1 = "location1")
+	static class Location1ImplicitAliasesContextConfigClass {
+	}
+
+	// Attribute value intentionally matches attribute name:
+	@ImplicitAliasesContextConfig(location2 = "location2")
+	static class Location2ImplicitAliasesContextConfigClass {
+	}
+
+	// Attribute value intentionally matches attribute name:
+	@ImplicitAliasesContextConfig(location3 = "location3")
+	static class Location3ImplicitAliasesContextConfigClass {
+	}
+
+	@ContextConfig
+	@Retention(RetentionPolicy.RUNTIME)
+	@interface ImplicitAliasesWithImpliedAliasNamesOmittedContextConfig {
+
+		// intentionally omitted: attribute = "value"
+		@AliasFor(annotation = ContextConfig.class)
+		String value() default "";
+
+		// intentionally omitted: attribute = "locations"
+		@AliasFor(annotation = ContextConfig.class)
+		String location() default "";
+
+		@AliasFor(annotation = ContextConfig.class, attribute = "location")
+		String xmlFile() default "";
+	}
+
+	@ImplicitAliasesWithImpliedAliasNamesOmittedContextConfig
+	@Retention(RetentionPolicy.RUNTIME)
+	@interface TransitiveImplicitAliasesWithImpliedAliasNamesOmittedContextConfig {
+
+		@AliasFor(annotation = ImplicitAliasesWithImpliedAliasNamesOmittedContextConfig.class, attribute = "xmlFile")
+		String xml() default "";
+
+		@AliasFor(annotation = ImplicitAliasesWithImpliedAliasNamesOmittedContextConfig.class, attribute = "location")
+		String groovy() default "";
+	}
+
+	// Attribute value intentionally matches attribute name:
+	@ImplicitAliasesWithImpliedAliasNamesOmittedContextConfig("value")
+	static class ValueImplicitAliasesWithImpliedAliasNamesOmittedContextConfigClass {
+	}
+
+	// Attribute value intentionally matches attribute name:
+	@ImplicitAliasesWithImpliedAliasNamesOmittedContextConfig(location = "location")
+	static class LocationsImplicitAliasesWithImpliedAliasNamesOmittedContextConfigClass {
+	}
+
+	// Attribute value intentionally matches attribute name:
+	@ImplicitAliasesWithImpliedAliasNamesOmittedContextConfig(xmlFile = "xmlFile")
+	static class XmlFilesImplicitAliasesWithImpliedAliasNamesOmittedContextConfigClass {
+	}
+
+	@ContextConfig
+	@Retention(RetentionPolicy.RUNTIME)
+	@interface ImplicitAliasesWithMissingDefaultValuesContextConfig {
+
+		@AliasFor(annotation = ContextConfig.class, attribute = "location")
+		String location1();
+
+		@AliasFor(annotation = ContextConfig.class, attribute = "location")
+		String location2();
+	}
+
+	@ImplicitAliasesWithMissingDefaultValuesContextConfig(location1 = "1", location2 = "2")
+	static class ImplicitAliasesWithMissingDefaultValuesContextConfigClass {
+	}
+
+	@ContextConfig
+	@Retention(RetentionPolicy.RUNTIME)
+	@interface ImplicitAliasesWithDifferentDefaultValuesContextConfig {
+
+		@AliasFor(annotation = ContextConfig.class, attribute = "location")
+		String location1() default "foo";
+
+		@AliasFor(annotation = ContextConfig.class, attribute = "location")
+		String location2() default "bar";
+	}
+
+	@ImplicitAliasesWithDifferentDefaultValuesContextConfig(location1 = "1", location2 = "2")
+	static class ImplicitAliasesWithDifferentDefaultValuesContextConfigClass {
+	}
+
+	@ContextConfig
+	@Retention(RetentionPolicy.RUNTIME)
+	@interface ImplicitAliasesWithDuplicateValuesContextConfig {
+
+		@AliasFor(annotation = ContextConfig.class, attribute = "location")
+		String location1() default "";
+
+		@AliasFor(annotation = ContextConfig.class, attribute = "location")
+		String location2() default "";
+	}
+
+	@ImplicitAliasesWithDuplicateValuesContextConfig(location1 = "1", location2 = "2")
+	static class ImplicitAliasesWithDuplicateValuesContextConfigClass {
+	}
+
+	@ContextConfig
+	@Retention(RetentionPolicy.RUNTIME)
+	@interface ImplicitAliasesForAliasPairContextConfig {
+
+		@AliasFor(annotation = ContextConfig.class, attribute = "location")
+		String xmlFile() default "";
+
+		@AliasFor(annotation = ContextConfig.class, value = "value")
+		String groovyScript() default "";
+	}
+
+	@ImplicitAliasesForAliasPairContextConfig(xmlFile = "test.xml")
+	static class ImplicitAliasesForAliasPairContextConfigClass {
+	}
+
+	@ImplicitAliasesContextConfig
+	@Retention(RetentionPolicy.RUNTIME)
+	@interface TransitiveImplicitAliasesContextConfig {
+
+		@AliasFor(annotation = ImplicitAliasesContextConfig.class, attribute = "xmlFile")
+		String xml() default "";
+
+		@AliasFor(annotation = ImplicitAliasesContextConfig.class, attribute = "groovyScript")
+		String groovy() default "";
+	}
+
+	@TransitiveImplicitAliasesContextConfig(xml = "test.xml")
+	static class TransitiveImplicitAliasesContextConfigClass {
+	}
+
+	@ImplicitAliasesForAliasPairContextConfig
+	@Retention(RetentionPolicy.RUNTIME)
+	@interface TransitiveImplicitAliasesForAliasPairContextConfig {
+
+		@AliasFor(annotation = ImplicitAliasesForAliasPairContextConfig.class, attribute = "xmlFile")
+		String xml() default "";
+
+		@AliasFor(annotation = ImplicitAliasesForAliasPairContextConfig.class, attribute = "groovyScript")
+		String groovy() default "";
+	}
+
+	@TransitiveImplicitAliasesForAliasPairContextConfig(xml = "test.xml")
+	static class TransitiveImplicitAliasesForAliasPairContextConfigClass {
 	}
 
 	@Retention(RetentionPolicy.RUNTIME)
@@ -1667,7 +2311,7 @@ public class AnnotationUtilsTests {
 	}
 
 	/**
-	 * Mock of {@code org.springframework.context.annotation.ComponentScan}
+	 * Mock of {@code org.springframework.context.annotation.ComponentScan}.
 	 */
 	@Retention(RetentionPolicy.RUNTIME)
 	@interface ComponentScan {
@@ -1676,6 +2320,18 @@ public class AnnotationUtilsTests {
 
 	@ComponentScan(excludeFilters = { @Filter(pattern = "*Foo"), @Filter(pattern = "*Bar") })
 	static class ComponentScanClass {
+	}
+
+	/**
+	 * Mock of {@code org.springframework.context.annotation.ComponentScan}.
+	 */
+	@Retention(RetentionPolicy.RUNTIME)
+	@interface ComponentScanSingleFilter {
+		Filter value();
+	}
+
+	@ComponentScanSingleFilter(@Filter(pattern = "*Foo"))
+	static class ComponentScanSingleFilterClass {
 	}
 
 	@Retention(RetentionPolicy.RUNTIME)

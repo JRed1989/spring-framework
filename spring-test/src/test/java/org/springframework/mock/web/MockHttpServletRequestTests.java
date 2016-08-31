@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2015 the original author or authors.
+ * Copyright 2002-2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,6 +27,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+
+import javax.servlet.http.Cookie;
 
 import org.junit.Test;
 
@@ -155,7 +157,7 @@ public class MockHttpServletRequestTests {
 	public void setMultipleParameters() {
 		request.setParameter("key1", "value1");
 		request.setParameter("key2", "value2");
-		Map<String, Object> params = new HashMap<String, Object>(2);
+		Map<String, Object> params = new HashMap<>(2);
 		params.put("key1", "newValue1");
 		params.put("key3", new String[] { "value3A", "value3B" });
 		request.setParameters(params);
@@ -173,7 +175,7 @@ public class MockHttpServletRequestTests {
 	public void addMultipleParameters() {
 		request.setParameter("key1", "value1");
 		request.setParameter("key2", "value2");
-		Map<String, Object> params = new HashMap<String, Object>(2);
+		Map<String, Object> params = new HashMap<>(2);
 		params.put("key1", "newValue1");
 		params.put("key3", new String[] { "value3A", "value3B" });
 		request.addParameters(params);
@@ -191,13 +193,33 @@ public class MockHttpServletRequestTests {
 	@Test
 	public void removeAllParameters() {
 		request.setParameter("key1", "value1");
-		Map<String, Object> params = new HashMap<String, Object>(2);
+		Map<String, Object> params = new HashMap<>(2);
 		params.put("key2", "value2");
 		params.put("key3", new String[] { "value3A", "value3B" });
 		request.addParameters(params);
 		assertEquals(3, request.getParameterMap().size());
 		request.removeAllParameters();
 		assertEquals(0, request.getParameterMap().size());
+	}
+
+	@Test
+	public void cookies() {
+		Cookie cookie1 = new Cookie("foo", "bar");
+		Cookie cookie2 = new Cookie("baz", "qux");
+		request.setCookies(cookie1, cookie2);
+
+		Cookie[] cookies = request.getCookies();
+
+		assertEquals(2, cookies.length);
+		assertEquals("foo", cookies[0].getName());
+		assertEquals("bar", cookies[0].getValue());
+		assertEquals("baz", cookies[1].getName());
+		assertEquals("qux", cookies[1].getValue());
+	}
+
+	@Test
+	public void noCookies() {
+		assertNull(request.getCookies());
 	}
 
 	@Test
@@ -223,7 +245,7 @@ public class MockHttpServletRequestTests {
 
 	@Test(expected = IllegalArgumentException.class)
 	public void setPreferredLocalesWithEmptyList() {
-		request.setPreferredLocales(new ArrayList<Locale>());
+		request.setPreferredLocales(new ArrayList<>());
 	}
 
 	@Test

@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2015 the original author or authors.
+ * Copyright 2002-2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -50,6 +50,7 @@ import java.util.TimeZone;
  * @author Rick Evans
  * @author Arjen Poutsma
  * @author Sam Brannen
+ * @author Brian Clozel
  * @since 16 April 2001
  */
 public abstract class StringUtils {
@@ -527,7 +528,7 @@ public abstract class StringUtils {
 	}
 
 	/**
-	 * Extract the filename from the given path,
+	 * Extract the filename from the given Java resource path,
 	 * e.g. {@code "mypath/myfile.txt" -> "myfile.txt"}.
 	 * @param path the file path (may be {@code null})
 	 * @return the extracted filename, or {@code null} if none
@@ -541,7 +542,7 @@ public abstract class StringUtils {
 	}
 
 	/**
-	 * Extract the filename extension from the given path,
+	 * Extract the filename extension from the given Java resource path,
 	 * e.g. "mypath/myfile.txt" -> "txt".
 	 * @param path the file path (may be {@code null})
 	 * @return the extracted filename extension, or {@code null} if none
@@ -562,7 +563,7 @@ public abstract class StringUtils {
 	}
 
 	/**
-	 * Strip the filename extension from the given path,
+	 * Strip the filename extension from the given Java resource path,
 	 * e.g. "mypath/myfile.txt" -> "mypath/myfile".
 	 * @param path the file path (may be {@code null})
 	 * @return the path with stripped filename extension,
@@ -584,7 +585,7 @@ public abstract class StringUtils {
 	}
 
 	/**
-	 * Apply the given relative path to the given path,
+	 * Apply the given relative path to the given Java resource path,
 	 * assuming standard Java folder separation (i.e. "/" separators).
 	 * @param path the path to start from (usually a full file path)
 	 * @param relativePath the relative path to apply
@@ -640,7 +641,7 @@ public abstract class StringUtils {
 		}
 
 		String[] pathArray = delimitedListToStringArray(pathToUse, FOLDER_SEPARATOR);
-		List<String> pathElements = new LinkedList<String>();
+		List<String> pathElements = new LinkedList<>();
 		int tops = 0;
 
 		for (int i = pathArray.length - 1; i >= 0; i--) {
@@ -808,7 +809,7 @@ public abstract class StringUtils {
 		if (ObjectUtils.isEmpty(array2)) {
 			return array1;
 		}
-		List<String> result = new ArrayList<String>();
+		List<String> result = new ArrayList<>();
 		result.addAll(Arrays.asList(array1));
 		for (String str : array2) {
 			if (!result.contains(str)) {
@@ -888,7 +889,7 @@ public abstract class StringUtils {
 		if (ObjectUtils.isEmpty(array)) {
 			return array;
 		}
-		Set<String> set = new LinkedHashSet<String>();
+		Set<String> set = new LinkedHashSet<>();
 		for (String element : array) {
 			set.add(element);
 		}
@@ -1013,7 +1014,7 @@ public abstract class StringUtils {
 			return null;
 		}
 		StringTokenizer st = new StringTokenizer(str, delimiters);
-		List<String> tokens = new ArrayList<String>();
+		List<String> tokens = new ArrayList<>();
 		while (st.hasMoreTokens()) {
 			String token = st.nextToken();
 			if (trimTokens) {
@@ -1065,7 +1066,7 @@ public abstract class StringUtils {
 		if (delimiter == null) {
 			return new String[] {str};
 		}
-		List<String> result = new ArrayList<String>();
+		List<String> result = new ArrayList<>();
 		if ("".equals(delimiter)) {
 			for (int i = 0; i < str.length(); i++) {
 				result.add(deleteAny(str.substring(i, i + 1), charsToDelete));
@@ -1105,7 +1106,7 @@ public abstract class StringUtils {
 	 * @see #removeDuplicateStrings(String[])
 	 */
 	public static Set<String> commaDelimitedListToSet(String str) {
-		Set<String> set = new LinkedHashSet<String>();
+		Set<String> set = new LinkedHashSet<>();
 		String[] tokens = commaDelimitedListToStringArray(str);
 		for (String token : tokens) {
 			set.add(token);

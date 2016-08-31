@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2015 the original author or authors.
+ * Copyright 2002-2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,8 +32,8 @@ import org.springframework.util.Assert;
 import org.springframework.util.MimeType;
 
 /**
- * Abstract base class for {@link MessageConverter} implementations including support
- * for common properties and a partial implementation of the conversion methods,
+ * Abstract base class for {@link SmartMessageConverter} implementations including
+ * support for common properties and a partial implementation of the conversion methods,
  * mainly to check if the converter supports the conversion based on the payload class
  * and MIME type.
  *
@@ -42,7 +42,7 @@ import org.springframework.util.MimeType;
  * @author Juergen Hoeller
  * @since 4.0
  */
-public abstract class AbstractMessageConverter implements MessageConverter {
+public abstract class AbstractMessageConverter implements SmartMessageConverter {
 
 	protected final Log logger = LogFactory.getLog(getClass());
 
@@ -70,7 +70,7 @@ public abstract class AbstractMessageConverter implements MessageConverter {
 	 */
 	protected AbstractMessageConverter(Collection<MimeType> supportedMimeTypes) {
 		Assert.notNull(supportedMimeTypes, "supportedMimeTypes must not be null");
-		this.supportedMimeTypes = new ArrayList<MimeType>(supportedMimeTypes);
+		this.supportedMimeTypes = new ArrayList<>(supportedMimeTypes);
 	}
 
 
@@ -167,19 +167,7 @@ public abstract class AbstractMessageConverter implements MessageConverter {
 		return fromMessage(message, targetClass, null);
 	}
 
-	/**
-	 * A variant of {@link #fromMessage(Message, Class)} which takes an extra
-	 * conversion context as an argument, allowing to take e.g. annotations
-	 * on a payload parameter into account.
-	 * @param message the input message
-	 * @param targetClass the target class for the conversion
-	 * @param conversionHint an extra object passed to the {@link MessageConverter},
-	 * e.g. the associated {@code MethodParameter} (may be {@code null}}
-	 * @return the result of the conversion, or {@code null} if the converter cannot
-	 * perform the conversion
-	 * @since 4.2
-	 * @see #fromMessage(Message, Class)
-	 */
+	@Override
 	public final Object fromMessage(Message<?> message, Class<?> targetClass, Object conversionHint) {
 		if (!canConvertFrom(message, targetClass)) {
 			return null;
@@ -196,19 +184,7 @@ public abstract class AbstractMessageConverter implements MessageConverter {
 		return toMessage(payload, headers, null);
 	}
 
-	/**
-	 * A variant of {@link #toMessage(Object, MessageHeaders)} which takes an extra
-	 * conversion context as an argument, allowing to take e.g. annotations
-	 * on a return type into account.
-	 * @param payload the Object to convert
-	 * @param headers optional headers for the message (may be {@code null})
-	 * @param conversionHint an extra object passed to the {@link MessageConverter},
-	 * e.g. the associated {@code MethodParameter} (may be {@code null}}
-	 * @return the new message, or {@code null} if the converter does not support the
-	 * Object type or the target media type
-	 * @since 4.2
-	 * @see #toMessage(Object, MessageHeaders)
-	 */
+	@Override
 	public final Message<?> toMessage(Object payload, MessageHeaders headers, Object conversionHint) {
 		if (!canConvertTo(payload, headers)) {
 			return null;
@@ -279,9 +255,8 @@ public abstract class AbstractMessageConverter implements MessageConverter {
 	 * perform the conversion
 	 * @since 4.2
 	 */
-	@SuppressWarnings("deprecation")
 	protected Object convertFromInternal(Message<?> message, Class<?> targetClass, Object conversionHint) {
-		return convertFromInternal(message, targetClass);
+		return null;
 	}
 
 	/**
@@ -294,28 +269,7 @@ public abstract class AbstractMessageConverter implements MessageConverter {
 	 * cannot perform the conversion
 	 * @since 4.2
 	 */
-	@SuppressWarnings("deprecation")
 	protected Object convertToInternal(Object payload, MessageHeaders headers, Object conversionHint) {
-		return convertToInternal(payload, headers);
-	}
-
-	/**
-	 * Convert the message payload from serialized form to an Object.
-	 * @deprecated as of Spring 4.2, in favor of {@link #convertFromInternal(Message, Class, Object)}
-	 * (which is also protected instead of public)
-	 */
-	@Deprecated
-	public Object convertFromInternal(Message<?> message, Class<?> targetClass) {
-		return null;
-	}
-
-	/**
-	 * Convert the payload object to serialized form.
-	 * @deprecated as of Spring 4.2, in favor of {@link #convertFromInternal(Message, Class, Object)}
-	 * (which is also protected instead of public)
-	 */
-	@Deprecated
-	public Object convertToInternal(Object payload, MessageHeaders headers) {
 		return null;
 	}
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2015 the original author or authors.
+ * Copyright 2002-2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package org.springframework.test.web.servlet;
 
 import java.util.ArrayList;
 import java.util.List;
+import javax.servlet.DispatcherType;
 import javax.servlet.Filter;
 import javax.servlet.ServletContext;
 
@@ -69,9 +70,9 @@ public final class MockMvc {
 
 	private RequestBuilder defaultRequestBuilder;
 
-	private List<ResultMatcher> defaultResultMatchers = new ArrayList<ResultMatcher>();
+	private List<ResultMatcher> defaultResultMatchers = new ArrayList<>();
 
-	private List<ResultHandler> defaultResultHandlers = new ArrayList<ResultHandler>();
+	private List<ResultHandler> defaultResultHandlers = new ArrayList<>();
 
 
 	/**
@@ -147,13 +148,17 @@ public final class MockMvc {
 		final MvcResult mvcResult = new DefaultMvcResult(request, response);
 		request.setAttribute(MVC_RESULT_ATTRIBUTE, mvcResult);
 
-		// [SPR-13217] Simulate RequestContextFilter to ensure that RequestAttributes are
-		// populated before filters are invoked.
 		RequestAttributes previousAttributes = RequestContextHolder.getRequestAttributes();
 		RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request, response));
 
 		MockFilterChain filterChain = new MockFilterChain(this.servlet, this.filters);
 		filterChain.doFilter(request, response);
+
+		if (DispatcherType.ASYNC.equals(request.getDispatcherType()) &&
+				request.getAsyncContext() != null & !request.isAsyncStarted()) {
+
+			request.getAsyncContext().complete();
+		}
 
 		applyDefaultResultActions(mvcResult);
 
@@ -168,8 +173,8 @@ public final class MockMvc {
 			}
 
 			@Override
-			public ResultActions andDo(ResultHandler printer) throws Exception {
-				printer.handle(mvcResult);
+			public ResultActions andDo(ResultHandler handler) throws Exception {
+				handler.handle(mvcResult);
 				return this;
 			}
 

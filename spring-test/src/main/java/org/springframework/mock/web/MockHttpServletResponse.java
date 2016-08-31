@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2015 the original author or authors.
+ * Copyright 2002-2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,6 +23,7 @@ import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.io.UnsupportedEncodingException;
 import java.io.Writer;
+import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -32,7 +33,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TimeZone;
-
 import javax.servlet.ServletOutputStream;
 import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletResponse;
@@ -45,9 +45,7 @@ import org.springframework.web.util.WebUtils;
 /**
  * Mock implementation of the {@link javax.servlet.http.HttpServletResponse} interface.
  *
- * <p>As of Spring 4.0, this set of mocks is designed on a Servlet 3.0 baseline.
- * Beyond that, {@code MockHttpServletResponse} is also compatible with Servlet
- * 3.1's {@code setContentLengthLong()} method.
+ * <p>As of Spring Framework 5.0, this set of mocks is designed on a Servlet 3.1 baseline.
  *
  * @author Juergen Hoeller
  * @author Rod Johnson
@@ -102,9 +100,9 @@ public class MockHttpServletResponse implements HttpServletResponse {
 	// HttpServletResponse properties
 	//---------------------------------------------------------------------
 
-	private final List<Cookie> cookies = new ArrayList<Cookie>();
+	private final List<Cookie> cookies = new ArrayList<>();
 
-	private final Map<String, HeaderValueHolder> headers = new LinkedCaseInsensitiveMap<HeaderValueHolder>();
+	private final Map<String, HeaderValueHolder> headers = new LinkedCaseInsensitiveMap<>();
 
 	private int status = HttpServletResponse.SC_OK;
 
@@ -112,7 +110,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
 
 	private String forwardedUrl;
 
-	private final List<String> includedUrls = new ArrayList<String>();
+	private final List<String> includedUrls = new ArrayList<>();
 
 
 	//---------------------------------------------------------------------
@@ -154,7 +152,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
 	 * <p>If {@code false}, {@link #getCharacterEncoding()} will return a default encoding value.
 	 */
 	public boolean isCharset() {
-		return charset;
+		return this.charset;
 	}
 
 	@Override
@@ -181,17 +179,13 @@ public class MockHttpServletResponse implements HttpServletResponse {
 
 	@Override
 	public ServletOutputStream getOutputStream() {
-		if (!this.outputStreamAccessAllowed) {
-			throw new IllegalStateException("OutputStream access not allowed");
-		}
+		Assert.state(this.outputStreamAccessAllowed, "OutputStream access not allowed");
 		return this.outputStream;
 	}
 
 	@Override
 	public PrintWriter getWriter() throws UnsupportedEncodingException {
-		if (!this.writerAccessAllowed) {
-			throw new IllegalStateException("Writer access not allowed");
-		}
+		Assert.state(this.writerAccessAllowed, "Writer access not allowed");
 		if (this.writer == null) {
 			Writer targetWriter = (this.characterEncoding != null ?
 					new OutputStreamWriter(this.content, this.characterEncoding) : new OutputStreamWriter(this.content));
@@ -236,8 +230,8 @@ public class MockHttpServletResponse implements HttpServletResponse {
 		if (contentType != null) {
 			try {
 				MediaType mediaType = MediaType.parseMediaType(contentType);
-				if (mediaType.getCharSet() != null) {
-					this.characterEncoding = mediaType.getCharSet().name();
+				if (mediaType.getCharset() != null) {
+					this.characterEncoding = mediaType.getCharset().name();
 					this.charset = true;
 				}
 			}
@@ -275,9 +269,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
 
 	@Override
 	public void resetBuffer() {
-		if (isCommitted()) {
-			throw new IllegalStateException("Cannot reset buffer - response is already committed");
-		}
+		Assert.state(!isCommitted(), "Cannot reset buffer - response is already committed");
 		this.content.reset();
 	}
 
@@ -456,9 +448,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
 
 	@Override
 	public void sendError(int status, String errorMessage) throws IOException {
-		if (isCommitted()) {
-			throw new IllegalStateException("Cannot set error status - response is already committed");
-		}
+		Assert.state(!isCommitted(), "Cannot set error status - response is already committed");
 		this.status = status;
 		this.errorMessage = errorMessage;
 		setCommitted(true);
@@ -466,18 +456,14 @@ public class MockHttpServletResponse implements HttpServletResponse {
 
 	@Override
 	public void sendError(int status) throws IOException {
-		if (isCommitted()) {
-			throw new IllegalStateException("Cannot set error status - response is already committed");
-		}
+		Assert.state(!isCommitted(), "Cannot set error status - response is already committed");
 		this.status = status;
 		setCommitted(true);
 	}
 
 	@Override
 	public void sendRedirect(String url) throws IOException {
-		if (isCommitted()) {
-			throw new IllegalStateException("Cannot send redirect - response is already committed");
-		}
+		Assert.state(!isCommitted(), "Cannot send redirect - response is already committed");
 		Assert.notNull(url, "Redirect URL must not be null");
 		setHeader(LOCATION_HEADER, url);
 		setStatus(HttpServletResponse.SC_MOVED_TEMPORARILY);
@@ -491,6 +477,18 @@ public class MockHttpServletResponse implements HttpServletResponse {
 	@Override
 	public void setDateHeader(String name, long value) {
 		setHeaderValue(name, formatDate(value));
+	}
+
+	public long getDateHeader(String name) {
+		SimpleDateFormat dateFormat = new SimpleDateFormat(DATE_FORMAT, Locale.US);
+		dateFormat.setTimeZone(GMT);
+		try {
+			return dateFormat.parse(getHeader(name)).getTime();
+		}
+		catch (ParseException ex) {
+			throw new IllegalArgumentException(
+					"Value for header '" + name + "' is not a valid Date: " + getHeader(name));
+		}
 	}
 
 	@Override
@@ -540,11 +538,12 @@ public class MockHttpServletResponse implements HttpServletResponse {
 
 	private boolean setSpecialHeader(String name, Object value) {
 		if (CONTENT_TYPE_HEADER.equalsIgnoreCase(name)) {
-			setContentType((String) value);
+			setContentType(value.toString());
 			return true;
 		}
 		else if (CONTENT_LENGTH_HEADER.equalsIgnoreCase(name)) {
-			setContentLength(Integer.parseInt((String) value));
+			setContentLength(value instanceof Number ? ((Number) value).intValue() :
+					Integer.parseInt(value.toString()));
 			return true;
 		}
 		else {
@@ -614,10 +613,8 @@ public class MockHttpServletResponse implements HttpServletResponse {
 
 	public String getIncludedUrl() {
 		int count = this.includedUrls.size();
-		if (count > 1) {
-			throw new IllegalStateException(
-					"More than 1 URL included - check getIncludedUrls instead: " + this.includedUrls);
-		}
+		Assert.state(count <= 1,
+				() -> "More than 1 URL included - check getIncludedUrls instead: " + this.includedUrls);
 		return (count == 1 ? this.includedUrls.get(0) : null);
 	}
 

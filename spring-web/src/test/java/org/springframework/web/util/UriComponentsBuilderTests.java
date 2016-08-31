@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2015 the original author or authors.
+ * Copyright 2002-2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -42,6 +42,7 @@ import static org.junit.Assert.*;
  * @author Phillip Webb
  * @author Oliver Gierke
  * @author David Eckel
+ * @author Sam Brannen
  */
 public class UriComponentsBuilderTests {
 
@@ -156,7 +157,7 @@ public class UriComponentsBuilderTests {
 		assertEquals(80, result.getPort());
 		assertEquals("/javase/6/docs/api/java/util/BitSet.html", result.getPath());
 		assertEquals("foo=bar", result.getQuery());
-		MultiValueMap<String, String> expectedQueryParams = new LinkedMultiValueMap<String, String>(1);
+		MultiValueMap<String, String> expectedQueryParams = new LinkedMultiValueMap<>(1);
 		expectedQueryParams.add("foo", "bar");
 		assertEquals(expectedQueryParams, result.getQueryParams());
 		assertEquals("and(java.util.BitSet)", result.getFragment());
@@ -549,7 +550,7 @@ public class UriComponentsBuilderTests {
 		UriComponents result = builder.queryParam("baz", "qux", 42).build();
 
 		assertEquals("baz=qux&baz=42", result.getQuery());
-		MultiValueMap<String, String> expectedQueryParams = new LinkedMultiValueMap<String, String>(2);
+		MultiValueMap<String, String> expectedQueryParams = new LinkedMultiValueMap<>(2);
 		expectedQueryParams.add("baz", "qux");
 		expectedQueryParams.add("baz", "42");
 		assertEquals(expectedQueryParams, result.getQueryParams());
@@ -561,7 +562,7 @@ public class UriComponentsBuilderTests {
 		UriComponents result = builder.queryParam("baz").build();
 
 		assertEquals("baz", result.getQuery());
-		MultiValueMap<String, String> expectedQueryParams = new LinkedMultiValueMap<String, String>(2);
+		MultiValueMap<String, String> expectedQueryParams = new LinkedMultiValueMap<>(2);
 		expectedQueryParams.add("baz", null);
 		assertEquals(expectedQueryParams, result.getQueryParams());
 	}
@@ -586,7 +587,7 @@ public class UriComponentsBuilderTests {
 		UriComponents result = UriComponentsBuilder.fromPath("/{foo}").buildAndExpand("fooValue");
 		assertEquals("/fooValue", result.toUriString());
 
-		Map<String, String> values = new HashMap<String, String>();
+		Map<String, String> values = new HashMap<>();
 		values.put("foo", "fooValue");
 		values.put("bar", "barValue");
 		result = UriComponentsBuilder.fromPath("/{foo}/{bar}").buildAndExpand(values);
@@ -598,7 +599,7 @@ public class UriComponentsBuilderTests {
 		UriComponents result = UriComponentsBuilder.fromUriString("mailto:{user}@{domain}").buildAndExpand("foo", "example.com");
 		assertEquals("mailto:foo@example.com", result.toUriString());
 
-		Map<String, String> values = new HashMap<String, String>();
+		Map<String, String> values = new HashMap<>();
 		values.put("user", "foo");
 		values.put("domain", "example.com");
 		UriComponentsBuilder.fromUriString("mailto:{user}@{domain}").buildAndExpand(values);
@@ -609,18 +610,23 @@ public class UriComponentsBuilderTests {
 	public void queryParamWithValueWithEquals() throws Exception {
 		UriComponents uriComponents = UriComponentsBuilder.fromUriString("http://example.com/foo?bar=baz").build();
 		assertThat(uriComponents.toUriString(), equalTo("http://example.com/foo?bar=baz"));
+		assertThat(uriComponents.getQueryParams().get("bar").get(0), equalTo("baz"));
 	}
 
 	@Test
 	public void queryParamWithoutValueWithEquals() throws Exception {
 		UriComponents uriComponents = UriComponentsBuilder.fromUriString("http://example.com/foo?bar=").build();
 		assertThat(uriComponents.toUriString(), equalTo("http://example.com/foo?bar="));
+		assertThat(uriComponents.getQueryParams().get("bar").get(0), equalTo(""));
 	}
 
 	@Test
 	public void queryParamWithoutValueWithoutEquals() throws Exception {
 		UriComponents uriComponents = UriComponentsBuilder.fromUriString("http://example.com/foo?bar").build();
 		assertThat(uriComponents.toUriString(), equalTo("http://example.com/foo?bar"));
+
+		// TODO [SPR-13537] Change equalTo(null) to equalTo("").
+		assertThat(uriComponents.getQueryParams().get("bar").get(0), equalTo(null));
 	}
 
 	@Test

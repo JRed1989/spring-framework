@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2015 the original author or authors.
+ * Copyright 2002-2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,8 +22,8 @@ import java.io.PushbackInputStream;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -63,8 +63,8 @@ import org.springframework.web.method.support.HandlerMethodArgumentResolver;
  */
 public abstract class AbstractMessageConverterMethodArgumentResolver implements HandlerMethodArgumentResolver {
 
-	private static final List<HttpMethod> SUPPORTED_METHODS =
-			Arrays.asList(HttpMethod.POST, HttpMethod.PUT, HttpMethod.PATCH);
+	private static final Set<HttpMethod> SUPPORTED_METHODS =
+			EnumSet.of(HttpMethod.POST, HttpMethod.PUT, HttpMethod.PATCH);
 
 	private static final Object NO_VALUE = new Object();
 
@@ -104,11 +104,11 @@ public abstract class AbstractMessageConverterMethodArgumentResolver implements 
 	 * by specificity via {@link MediaType#sortBySpecificity(List)}.
 	 */
 	private static List<MediaType> getAllSupportedMediaTypes(List<HttpMessageConverter<?>> messageConverters) {
-		Set<MediaType> allSupportedMediaTypes = new LinkedHashSet<MediaType>();
+		Set<MediaType> allSupportedMediaTypes = new LinkedHashSet<>();
 		for (HttpMessageConverter<?> messageConverter : messageConverters) {
 			allSupportedMediaTypes.addAll(messageConverter.getSupportedMediaTypes());
 		}
-		List<MediaType> result = new ArrayList<MediaType>(allSupportedMediaTypes);
+		List<MediaType> result = new ArrayList<>(allSupportedMediaTypes);
 		MediaType.sortBySpecificity(result);
 		return Collections.unmodifiableList(result);
 	}
@@ -158,6 +158,7 @@ public abstract class AbstractMessageConverterMethodArgumentResolver implements 
 			Type targetType) throws IOException, HttpMediaTypeNotSupportedException, HttpMessageNotReadableException {
 
 		MediaType contentType;
+		boolean noContentType = false;
 		try {
 			contentType = inputMessage.getHeaders().getContentType();
 		}
@@ -165,6 +166,7 @@ public abstract class AbstractMessageConverterMethodArgumentResolver implements 
 			throw new HttpMediaTypeNotSupportedException(ex.getMessage());
 		}
 		if (contentType == null) {
+			noContentType = true;
 			contentType = MediaType.APPLICATION_OCTET_STREAM;
 		}
 
@@ -177,50 +179,57 @@ public abstract class AbstractMessageConverterMethodArgumentResolver implements 
 		}
 
 		HttpMethod httpMethod = ((HttpRequest) inputMessage).getMethod();
-		inputMessage = new EmptyBodyCheckingHttpInputMessage(inputMessage);
 		Object body = NO_VALUE;
 
-		for (HttpMessageConverter<?> converter : this.messageConverters) {
-			Class<HttpMessageConverter<?>> converterType = (Class<HttpMessageConverter<?>>) converter.getClass();
-			if (converter instanceof GenericHttpMessageConverter) {
-				GenericHttpMessageConverter<?> genericConverter = (GenericHttpMessageConverter<?>) converter;
-				if (genericConverter.canRead(targetType, contextClass, contentType)) {
-					if (logger.isDebugEnabled()) {
-						logger.debug("Read [" + targetType + "] as \"" + contentType + "\" with [" + converter + "]");
+		try {
+			inputMessage = new EmptyBodyCheckingHttpInputMessage(inputMessage);
+
+			for (HttpMessageConverter<?> converter : this.messageConverters) {
+				Class<HttpMessageConverter<?>> converterType = (Class<HttpMessageConverter<?>>) converter.getClass();
+				if (converter instanceof GenericHttpMessageConverter) {
+					GenericHttpMessageConverter<?> genericConverter = (GenericHttpMessageConverter<?>) converter;
+					if (genericConverter.canRead(targetType, contextClass, contentType)) {
+						if (logger.isDebugEnabled()) {
+							logger.debug("Read [" + targetType + "] as \"" + contentType + "\" with [" + converter + "]");
+						}
+						if (inputMessage.getBody() != null) {
+							inputMessage = getAdvice().beforeBodyRead(inputMessage, param, targetType, converterType);
+							body = genericConverter.read(targetType, contextClass, inputMessage);
+							body = getAdvice().afterBodyRead(body, inputMessage, param, targetType, converterType);
+						}
+						else {
+							body = null;
+							body = getAdvice().handleEmptyBody(body, inputMessage, param, targetType, converterType);
+						}
+						break;
 					}
-					if (inputMessage.getBody() != null) {
-						inputMessage = getAdvice().beforeBodyRead(inputMessage, param, targetType, converterType);
-						body = genericConverter.read(targetType, contextClass, inputMessage);
-						body = getAdvice().afterBodyRead(body, inputMessage, param, targetType, converterType);
-					}
-					else {
-						body = null;
-						body = getAdvice().handleEmptyBody(body, inputMessage, param, targetType, converterType);
-					}
-					break;
 				}
-			}
-			else if (targetClass != null) {
-				if (converter.canRead(targetClass, contentType)) {
-					if (logger.isDebugEnabled()) {
-						logger.debug("Read [" + targetType + "] as \"" + contentType + "\" with [" + converter + "]");
+				else if (targetClass != null) {
+					if (converter.canRead(targetClass, contentType)) {
+						if (logger.isDebugEnabled()) {
+							logger.debug("Read [" + targetType + "] as \"" + contentType + "\" with [" + converter + "]");
+						}
+						if (inputMessage.getBody() != null) {
+							inputMessage = getAdvice().beforeBodyRead(inputMessage, param, targetType, converterType);
+							body = ((HttpMessageConverter<T>) converter).read(targetClass, inputMessage);
+							body = getAdvice().afterBodyRead(body, inputMessage, param, targetType, converterType);
+						}
+						else {
+							body = null;
+							body = getAdvice().handleEmptyBody(body, inputMessage, param, targetType, converterType);
+						}
+						break;
 					}
-					if (inputMessage.getBody() != null) {
-						inputMessage = getAdvice().beforeBodyRead(inputMessage, param, targetType, converterType);
-						body = ((HttpMessageConverter<T>) converter).read(targetClass, inputMessage);
-						body = getAdvice().afterBodyRead(body, inputMessage, param, targetType, converterType);
-					}
-					else {
-						body = null;
-						body = getAdvice().handleEmptyBody(body, inputMessage, param, targetType, converterType);
-					}
-					break;
 				}
 			}
 		}
+		catch (IOException ex) {
+			throw new HttpMessageNotReadableException("Could not read document: " + ex.getMessage(), ex);
+		}
 
 		if (body == NO_VALUE) {
-			if (!SUPPORTED_METHODS.contains(httpMethod)) {
+			if (httpMethod == null || !SUPPORTED_METHODS.contains(httpMethod) ||
+					(noContentType && inputMessage.getBody() == null)) {
 				return null;
 			}
 			throw new HttpMediaTypeNotSupportedException(contentType, this.allSupportedMediaTypes);

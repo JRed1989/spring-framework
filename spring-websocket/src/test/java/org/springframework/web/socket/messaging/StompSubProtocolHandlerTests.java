@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2015 the original author or authors.
+ * Copyright 2002-2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,11 +15,6 @@
  */
 
 package org.springframework.web.socket.messaging;
-
-import static org.hamcrest.Matchers.*;
-import static org.junit.Assert.*;
-import static org.mockito.Matchers.any;
-import static org.mockito.Mockito.*;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -61,6 +56,22 @@ import org.springframework.web.socket.WebSocketMessage;
 import org.springframework.web.socket.handler.TestWebSocketSession;
 import org.springframework.web.socket.sockjs.transport.SockJsSession;
 
+import static org.hamcrest.Matchers.is;
+import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
+import static org.mockito.Matchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.Mockito.verifyZeroInteractions;
+import static org.mockito.Mockito.when;
+
 /**
  * Test fixture for {@link StompSubProtocolHandler} tests.
  *
@@ -85,6 +96,8 @@ public class StompSubProtocolHandlerTests {
 		this.protocolHandler = new StompSubProtocolHandler();
 		this.channel = Mockito.mock(MessageChannel.class);
 		this.messageCaptor = ArgumentCaptor.forClass(Message.class);
+
+		when(this.channel.send(any())).thenReturn(true);
 
 		this.session = new TestWebSocketSession();
 		this.session.setId("s1");
@@ -154,6 +167,40 @@ public class StompSubProtocolHandlerTests {
 		TextMessage actual = (TextMessage) this.session.getSentMessages().get(0);
 		assertEquals("CONNECTED\n" + "version:1.1\n" + "heart-beat:0,0\n" +
 				"user-name:joe\n" + "\n" + "\u0000", actual.getPayload());
+	}
+
+	@Test
+	public void handleMessageToClientWithSimpDisconnectAck() {
+
+		StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.DISCONNECT);
+		Message<?> connectMessage = MessageBuilder.createMessage(EMPTY_PAYLOAD, accessor.getMessageHeaders());
+
+		SimpMessageHeaderAccessor ackAccessor = SimpMessageHeaderAccessor.create(SimpMessageType.DISCONNECT_ACK);
+		ackAccessor.setHeader(SimpMessageHeaderAccessor.DISCONNECT_MESSAGE_HEADER, connectMessage);
+		Message<byte[]> ackMessage = MessageBuilder.createMessage(EMPTY_PAYLOAD, ackAccessor.getMessageHeaders());
+		this.protocolHandler.handleMessageToClient(this.session, ackMessage);
+
+		assertEquals(1, this.session.getSentMessages().size());
+		TextMessage actual = (TextMessage) this.session.getSentMessages().get(0);
+		assertEquals("ERROR\n" + "message:Session closed.\n" + "content-length:0\n" +
+				"\n\u0000", actual.getPayload());
+	}
+
+	@Test
+	public void handleMessageToClientWithSimpDisconnectAckAndReceipt() {
+
+		StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.DISCONNECT);
+		accessor.setReceipt("message-123");
+		Message<?> connectMessage = MessageBuilder.createMessage(EMPTY_PAYLOAD, accessor.getMessageHeaders());
+
+		SimpMessageHeaderAccessor ackAccessor = SimpMessageHeaderAccessor.create(SimpMessageType.DISCONNECT_ACK);
+		ackAccessor.setHeader(SimpMessageHeaderAccessor.DISCONNECT_MESSAGE_HEADER, connectMessage);
+		Message<byte[]> ackMessage = MessageBuilder.createMessage(EMPTY_PAYLOAD, ackAccessor.getMessageHeaders());
+		this.protocolHandler.handleMessageToClient(this.session, ackMessage);
+
+		assertEquals(1, this.session.getSentMessages().size());
+		TextMessage actual = (TextMessage) this.session.getSentMessages().get(0);
+		assertEquals("RECEIPT\n" + "receipt-id:message-123\n" + "\n\u0000", actual.getPayload());
 	}
 
 	@Test
@@ -455,7 +502,7 @@ public class StompSubProtocolHandlerTests {
 
 	private static class TestPublisher implements ApplicationEventPublisher {
 
-		private final List<ApplicationEvent> events = new ArrayList<ApplicationEvent>();
+		private final List<ApplicationEvent> events = new ArrayList<>();
 
 		@Override
 		public void publishEvent(ApplicationEvent event) {
@@ -464,7 +511,7 @@ public class StompSubProtocolHandlerTests {
 
 		@Override
 		public void publishEvent(Object event) {
-			publishEvent(new PayloadApplicationEvent<Object>(this, event));
+			publishEvent(new PayloadApplicationEvent<>(this, event));
 		}
 	}
 

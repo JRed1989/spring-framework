@@ -16,13 +16,9 @@
 
 package org.springframework.test.util;
 
-import static org.hamcrest.MatcherAssert.*;
-import static org.springframework.test.util.AssertionErrors.*;
-
 import java.io.ByteArrayInputStream;
 import java.util.Collections;
 import java.util.Map;
-
 import javax.xml.namespace.QName;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -41,6 +37,9 @@ import org.xml.sax.InputSource;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 import org.springframework.util.xml.SimpleNamespaceContext;
+
+import static org.hamcrest.MatcherAssert.*;
+import static org.springframework.test.util.AssertionErrors.*;
 
 /**
  * A helper class for applying assertions via XPath expressions.
@@ -92,8 +91,8 @@ public class XpathExpectationsHelper {
 	}
 
 	/**
-	 * Parse the content, evaluate the XPath expression as a {@link Node}, and
-	 * assert it with the given {@code Matcher<Node>}.
+	 * Parse the content, evaluate the XPath expression as a {@link Node},
+	 * and assert it with the given {@code Matcher<Node>}.
 	 */
 	public void assertNode(byte[] content, String encoding, final Matcher<? super Node> matcher) throws Exception {
 		Document document = parseXmlByteArray(content, encoding);
@@ -106,14 +105,13 @@ public class XpathExpectationsHelper {
 	 * @param xml the content to parse
 	 * @param encoding optional content encoding, if provided as metadata (e.g. in HTTP headers)
 	 * @return the parsed document
-	 * @throws Exception
 	 */
 	protected Document parseXmlByteArray(byte[] xml, String encoding) throws Exception {
 		DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
 		factory.setNamespaceAware(this.hasNamespaces);
 		DocumentBuilder documentBuilder = factory.newDocumentBuilder();
 		InputSource inputSource = new InputSource(new ByteArrayInputStream(xml));
-		if(StringUtils.hasText(encoding)) {
+		if (StringUtils.hasText(encoding)) {
 			inputSource.setEncoding(encoding);
 		}
 		return documentBuilder.parse(inputSource);

@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2015 the original author or authors.
+ * Copyright 2002-2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,21 +26,22 @@ import org.springframework.util.Assert;
 
 /**
  * A controller method return value type for asynchronous request processing
- * where one or more objects are written to the response. While
- * {@link org.springframework.web.context.request.async.DeferredResult DeferredResult}
+ * where one or more objects are written to the response.
+ *
+ * <p>While {@link org.springframework.web.context.request.async.DeferredResult}
  * is used to produce a single result, a {@code ResponseBodyEmitter} can be used
  * to send multiple objects where each object is written with a compatible
- * {@link org.springframework.http.converter.HttpMessageConverter HttpMessageConverter}.
+ * {@link org.springframework.http.converter.HttpMessageConverter}.
  *
  * <p>Supported as a return type on its own as well as within a
- * {@link org.springframework.http.ResponseEntity ResponseEntity}.
+ * {@link org.springframework.http.ResponseEntity}.
  *
  * <pre>
  * &#064;RequestMapping(value="/stream", method=RequestMethod.GET)
  * public ResponseBodyEmitter handle() {
- * 	ResponseBodyEmitter emitter = new ResponseBodyEmitter();
- * 	// Pass the emitter to another component...
- * 	return emitter;
+ * 	   ResponseBodyEmitter emitter = new ResponseBodyEmitter();
+ * 	   // Pass the emitter to another component...
+ * 	   return emitter;
  * }
  *
  * // in another thread
@@ -61,7 +62,7 @@ public class ResponseBodyEmitter {
 
 	private final Long timeout;
 
-	private final Set<DataWithMediaType> earlySendAttempts = new LinkedHashSet<DataWithMediaType>(8);
+	private final Set<DataWithMediaType> earlySendAttempts = new LinkedHashSet<>(8);
 
 	private Handler handler;
 
@@ -69,9 +70,9 @@ public class ResponseBodyEmitter {
 
 	private Throwable failure;
 
-	private Runnable timeoutCallback;
+	private final DefaultCallback timeoutCallback = new DefaultCallback();
 
-	private Runnable completionCallback;
+	private final DefaultCallback completionCallback = new DefaultCallback();
 
 
 	/**
@@ -101,15 +102,6 @@ public class ResponseBodyEmitter {
 	}
 
 
-	/**
-	 * Invoked after the response is updated with the status code and headers,
-	 * if the ResponseBodyEmitter is wrapped in a ResponseEntity, but before the
-	 * response is committed, i.e. before the response body has been written to.
-	 * <p>The default implementation is empty.
-	 */
-	protected void extendResponse(ServerHttpResponse outputMessage) {
-	}
-
 	synchronized void initialize(Handler handler) throws IOException {
 		this.handler = handler;
 
@@ -126,13 +118,19 @@ public class ResponseBodyEmitter {
 				this.handler.complete();
 			}
 		}
-
-		if (this.timeoutCallback != null) {
+		else {
 			this.handler.onTimeout(this.timeoutCallback);
-		}
-		if (this.completionCallback != null) {
 			this.handler.onCompletion(this.completionCallback);
 		}
+	}
+
+	/**
+	 * Invoked after the response is updated with the status code and headers,
+	 * if the ResponseBodyEmitter is wrapped in a ResponseEntity, but before the
+	 * response is committed, i.e. before the response body has been written to.
+	 * <p>The default implementation is empty.
+	 */
+	protected void extendResponse(ServerHttpResponse outputMessage) {
 	}
 
 	/**
@@ -168,11 +166,11 @@ public class ResponseBodyEmitter {
 					this.handler.send(object, mediaType);
 				}
 				catch (IOException ex) {
-					this.handler.completeWithError(ex);
+					completeWithError(ex);
 					throw ex;
 				}
 				catch (Throwable ex) {
-					this.handler.completeWithError(ex);
+					completeWithError(ex);
 					throw new IllegalStateException("Failed to send " + object, ex);
 				}
 			}
@@ -212,10 +210,7 @@ public class ResponseBodyEmitter {
 	 * called from a container thread when an async request times out.
 	 */
 	public synchronized void onTimeout(Runnable callback) {
-		this.timeoutCallback = callback;
-		if (this.handler != null) {
-			this.handler.onTimeout(callback);
-		}
+		this.timeoutCallback.setDelegate(callback);
 	}
 
 	/**
@@ -225,10 +220,7 @@ public class ResponseBodyEmitter {
 	 * detecting that a {@code ResponseBodyEmitter} instance is no longer usable.
 	 */
 	public synchronized void onCompletion(Runnable callback) {
-		this.completionCallback = callback;
-		if (this.handler != null) {
-			this.handler.onCompletion(callback);
-		}
+		this.completionCallback.setDelegate(callback);
 	}
 
 
@@ -250,9 +242,10 @@ public class ResponseBodyEmitter {
 
 
 	/**
-	 * Simple struct for a data entry.
+	 * A simple holder of data to be written along with a MediaType hint for
+	 * selecting a message converter to write with.
 	 */
-	static class DataWithMediaType {
+	public static class DataWithMediaType {
 
 		private final Object data;
 
@@ -269,6 +262,24 @@ public class ResponseBodyEmitter {
 
 		public MediaType getMediaType() {
 			return this.mediaType;
+		}
+	}
+
+
+	private class DefaultCallback implements Runnable {
+
+		private Runnable delegate;
+
+		public void setDelegate(Runnable delegate) {
+			this.delegate = delegate;
+		}
+
+		@Override
+		public void run() {
+			ResponseBodyEmitter.this.complete = true;
+			if (this.delegate != null) {
+				this.delegate.run();
+			}
 		}
 	}
 

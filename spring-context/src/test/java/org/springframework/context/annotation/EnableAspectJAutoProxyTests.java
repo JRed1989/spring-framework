@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2015 the original author or authors.
+ * Copyright 2002-2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,11 +20,13 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 
 import example.scannable.FooService;
+import example.scannable.FooServiceImpl;
 import example.scannable.ServiceInvocationCounter;
 import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.annotation.Before;
 import org.junit.Test;
 
+import org.springframework.aop.framework.AopContext;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -52,6 +54,14 @@ public class EnableAspectJAutoProxyTests {
 
 		aspectIsApplied(ctx);
 		assertThat(AopUtils.isCglibProxy(ctx.getBean(FooService.class)), is(true));
+	}
+
+	@Test
+	public void withExposedProxy() {
+		ApplicationContext ctx = new AnnotationConfigApplicationContext(ConfigWithExposedProxy.class);
+
+		aspectIsApplied(ctx);
+		assertThat(AopUtils.isJdkDynamicProxy(ctx.getBean(FooService.class)), is(true));
 	}
 
 	private void aspectIsApplied(ApplicationContext ctx) {
@@ -96,16 +106,32 @@ public class EnableAspectJAutoProxyTests {
 	}
 
 
-	@Configuration
 	@ComponentScan("example.scannable")
 	@EnableAspectJAutoProxy
 	static class ConfigWithJdkProxy {
 	}
 
-	@Configuration
+
 	@ComponentScan("example.scannable")
 	@EnableAspectJAutoProxy(proxyTargetClass = true)
 	static class ConfigWithCglibProxy {
+	}
+
+
+	@ComponentScan("example.scannable")
+	@EnableAspectJAutoProxy(exposeProxy = true)
+	static class ConfigWithExposedProxy {
+
+		@Bean
+		public FooService fooServiceImpl() {
+			return new FooServiceImpl() {
+				@Override
+				public String foo(int id) {
+					assertNotNull(AopContext.currentProxy());
+					return super.foo(id);
+				}
+			};
+		}
 	}
 
 
@@ -113,12 +139,15 @@ public class EnableAspectJAutoProxyTests {
 	public @interface Loggable {
 	}
 
+
 	@Loggable
 	public static class SampleDto {
 	}
 
+
 	public static class SampleInputBean {
 	}
+
 
 	public static class SampleService {
 
@@ -130,6 +159,7 @@ public class EnableAspectJAutoProxyTests {
 		public void execute(SampleDto dto) {
 		}
 	}
+
 
 	@Aspect
 	public static class LoggingAspect {

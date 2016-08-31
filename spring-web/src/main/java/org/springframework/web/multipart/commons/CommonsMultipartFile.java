@@ -16,7 +16,6 @@
 
 package org.springframework.web.multipart.commons;
 
-import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -28,10 +27,11 @@ import org.apache.commons.fileupload.disk.DiskFileItem;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
+import org.springframework.util.StreamUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
- * MultipartFile implementation for Apache Commons FileUpload.
+ * {@link MultipartFile} implementation for Apache Commons FileUpload.
  *
  * @author Trevor D. Cook
  * @author Juergen Hoeller
@@ -78,12 +78,13 @@ public class CommonsMultipartFile implements MultipartFile, Serializable {
 			// Should never happen.
 			return "";
 		}
+
 		// Check for Unix-style path
-		int pos = filename.lastIndexOf("/");
-		if (pos == -1) {
-			// Check for Windows-style path
-			pos = filename.lastIndexOf("\\");
-		}
+		int unixSep = filename.lastIndexOf("/");
+		// Check for Windows-style path
+		int winSep = filename.lastIndexOf("\\");
+		// Cut off at latest possible point
+		int pos = (winSep > unixSep ? winSep : unixSep);
 		if (pos != -1)  {
 			// Any sort of path separator found...
 			return filename.substring(pos + 1);
@@ -124,7 +125,7 @@ public class CommonsMultipartFile implements MultipartFile, Serializable {
 			throw new IllegalStateException("File has been moved - cannot be read again");
 		}
 		InputStream inputStream = this.fileItem.getInputStream();
-		return (inputStream != null ? inputStream : new ByteArrayInputStream(new byte[0]));
+		return (inputStream != null ? inputStream : StreamUtils.emptyInput());
 	}
 
 	@Override

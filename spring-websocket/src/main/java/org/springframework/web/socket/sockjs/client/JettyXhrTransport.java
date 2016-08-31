@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2015 the original author or authors.
+ * Copyright 2002-2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -60,7 +60,7 @@ import org.springframework.web.socket.sockjs.frame.SockJsFrame;
  * @author Rossen Stoyanchev
  * @since 4.1
  */
-public class JettyXhrTransport extends AbstractXhrTransport implements XhrTransport, Lifecycle {
+public class JettyXhrTransport extends AbstractXhrTransport implements Lifecycle {
 
 	private final HttpClient httpClient;
 
@@ -82,8 +82,8 @@ public class JettyXhrTransport extends AbstractXhrTransport implements XhrTransp
 				this.httpClient.start();
 			}
 		}
-		catch (Exception e) {
-			throw new SockJsException("Failed to start " + this, e);
+		catch (Exception ex) {
+			throw new SockJsException("Failed to start " + this, ex);
 		}
 	}
 
@@ -94,8 +94,8 @@ public class JettyXhrTransport extends AbstractXhrTransport implements XhrTransp
 				this.httpClient.stop();
 			}
 		}
-		catch (Exception e) {
-			throw new SockJsException("Failed to stop " + this, e);
+		catch (Exception ex) {
+			throw new SockJsException("Failed to stop " + this, ex);
 		}
 	}
 
@@ -150,9 +150,10 @@ public class JettyXhrTransport extends AbstractXhrTransport implements XhrTransp
 		HttpStatus status = HttpStatus.valueOf(response.getStatus());
 		HttpHeaders responseHeaders = toHttpHeaders(response.getHeaders());
 		return (response.getContent() != null ?
-			new ResponseEntity<String>(response.getContentAsString(), responseHeaders, status) :
-			new ResponseEntity<String>(responseHeaders, status));
+				new ResponseEntity<>(response.getContentAsString(), responseHeaders, status) :
+				new ResponseEntity<>(responseHeaders, status));
 	}
+
 
 	private static void addHttpHeaders(Request request, HttpHeaders headers) {
 		for (String name : headers.keySet()) {
@@ -194,7 +195,6 @@ public class JettyXhrTransport extends AbstractXhrTransport implements XhrTransp
 
 		private final ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
 
-
 		public SockJsResponseListener(URI url, HttpHeaders headers,	XhrClientSockJsSession sockJsSession,
 				SettableListenableFuture<WebSocketSession> connectFuture) {
 
@@ -203,7 +203,6 @@ public class JettyXhrTransport extends AbstractXhrTransport implements XhrTransp
 			this.connectFuture = connectFuture;
 			this.sockJsSession = sockJsSession;
 		}
-
 
 		@Override
 		public void onBegin(Response response) {

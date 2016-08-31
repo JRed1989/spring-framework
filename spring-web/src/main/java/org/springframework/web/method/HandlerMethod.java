@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2015 the original author or authors.
+ * Copyright 2002-2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@ import org.apache.commons.logging.LogFactory;
 import org.springframework.beans.factory.BeanFactory;
 import org.springframework.core.BridgeMethodResolver;
 import org.springframework.core.MethodParameter;
-import org.springframework.core.annotation.AnnotationUtils;
+import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.core.annotation.SynthesizingMethodParameter;
 import org.springframework.util.Assert;
 import org.springframework.util.ClassUtils;
@@ -33,15 +33,17 @@ import org.springframework.util.ClassUtils;
 /**
  * Encapsulates information about a handler method consisting of a
  * {@linkplain #getMethod() method} and a {@linkplain #getBean() bean}.
- * Provides convenient access to method parameters, method return value, method annotations.
+ * Provides convenient access to method parameters, the method return value,
+ * method annotations, etc.
  *
  * <p>The class may be created with a bean instance or with a bean name (e.g. lazy-init bean,
- * prototype bean). Use {@link #createWithResolvedBean()} to obtain a {@link HandlerMethod}
+ * prototype bean). Use {@link #createWithResolvedBean()} to obtain a {@code HandlerMethod}
  * instance with a bean instance resolved through the associated {@link BeanFactory}.
  *
  * @author Arjen Poutsma
  * @author Rossen Stoyanchev
  * @author Juergen Hoeller
+ * @author Sam Brannen
  * @since 3.1
  */
 public class HandlerMethod {
@@ -98,7 +100,7 @@ public class HandlerMethod {
 	/**
 	 * Create an instance from a bean name, a method, and a {@code BeanFactory}.
 	 * The method {@link #createWithResolvedBean()} may be used later to
-	 * re-create the {@code HandlerMethod} with an initialized the bean.
+	 * re-create the {@code HandlerMethod} with an initialized bean.
 	 */
 	public HandlerMethod(String beanName, BeanFactory beanFactory, Method method) {
 		Assert.hasText(beanName, "Bean name is required");
@@ -144,7 +146,7 @@ public class HandlerMethod {
 
 
 	private MethodParameter[] initMethodParameters() {
-		int count = this.bridgedMethod.getParameterTypes().length;
+		int count = this.bridgedMethod.getParameterCount();
 		MethodParameter[] result = new MethodParameter[count];
 		for (int i = 0; i < count; i++) {
 			result[i] = new HandlerMethodParameter(i);
@@ -222,11 +224,24 @@ public class HandlerMethod {
 	/**
 	 * Returns a single annotation on the underlying method traversing its super methods
 	 * if no annotation can be found on the given method itself.
-	 * @param annotationType the type of annotation to introspect the method for.
+	 * <p>Also supports <em>merged</em> composed annotations with attribute
+	 * overrides as of Spring Framework 4.2.2.
+	 * @param annotationType the type of annotation to introspect the method for
 	 * @return the annotation, or {@code null} if none found
+	 * @see AnnotatedElementUtils#findMergedAnnotation
 	 */
 	public <A extends Annotation> A getMethodAnnotation(Class<A> annotationType) {
-		return AnnotationUtils.findAnnotation(this.method, annotationType);
+		return AnnotatedElementUtils.findMergedAnnotation(this.method, annotationType);
+	}
+
+	/**
+	 * Return whether the parameter is declared with the given annotation type.
+	 * @param annotationType the annotation type to look for
+	 * @since 4.3
+	 * @see AnnotatedElementUtils#hasAnnotation
+	 */
+	public <A extends Annotation> boolean hasMethodAnnotation(Class<A> annotationType) {
+		return AnnotatedElementUtils.hasAnnotation(this.method, annotationType);
 	}
 
 	/**
@@ -240,6 +255,15 @@ public class HandlerMethod {
 			handler = this.beanFactory.getBean(beanName);
 		}
 		return new HandlerMethod(this, handler);
+	}
+
+	/**
+	 * Return a short representation of this handler method for log message purposes.
+	 * @since 4.3
+	 */
+	public String getShortLogMessage() {
+		int args = this.method.getParameterCount();
+		return getBeanType().getName() + "#" + this.method.getName() + "[" + args + " args]";
 	}
 
 
@@ -275,6 +299,10 @@ public class HandlerMethod {
 			super(HandlerMethod.this.bridgedMethod, index);
 		}
 
+		protected HandlerMethodParameter(HandlerMethodParameter original) {
+			super(original);
+		}
+
 		@Override
 		public Class<?> getContainingClass() {
 			return HandlerMethod.this.getBeanType();
@@ -283,6 +311,16 @@ public class HandlerMethod {
 		@Override
 		public <T extends Annotation> T getMethodAnnotation(Class<T> annotationType) {
 			return HandlerMethod.this.getMethodAnnotation(annotationType);
+		}
+
+		@Override
+		public <T extends Annotation> boolean hasMethodAnnotation(Class<T> annotationType) {
+			return HandlerMethod.this.hasMethodAnnotation(annotationType);
+		}
+
+		@Override
+		public HandlerMethodParameter clone() {
+			return new HandlerMethodParameter(this);
 		}
 	}
 
@@ -299,9 +337,19 @@ public class HandlerMethod {
 			this.returnValue = returnValue;
 		}
 
+		protected ReturnValueMethodParameter(ReturnValueMethodParameter original) {
+			super(original);
+			this.returnValue = original.returnValue;
+		}
+
 		@Override
 		public Class<?> getParameterType() {
 			return (this.returnValue != null ? this.returnValue.getClass() : super.getParameterType());
+		}
+
+		@Override
+		public ReturnValueMethodParameter clone() {
+			return new ReturnValueMethodParameter(this);
 		}
 	}
 

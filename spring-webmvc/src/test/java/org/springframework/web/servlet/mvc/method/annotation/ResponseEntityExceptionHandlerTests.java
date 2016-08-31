@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2013 the original author or authors.
+ * Copyright 2002-2015 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,16 +13,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.springframework.web.servlet.mvc.method.annotation;
 
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.List;
-import javax.servlet.http.HttpServletRequest;
 
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import org.springframework.beans.ConversionNotSupportedException;
 import org.springframework.beans.TypeMismatchException;
@@ -52,11 +53,9 @@ import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.context.support.StaticWebApplicationContext;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.NoHandlerFoundException;
-import org.springframework.web.servlet.mvc.multiaction.NoSuchRequestHandlingMethodException;
 import org.springframework.web.servlet.mvc.support.DefaultHandlerExceptionResolver;
 
 import static org.junit.Assert.*;
-import org.mockito.Mockito;
 
 /**
  * Test fixture for {@link ResponseEntityExceptionHandler}.
@@ -71,14 +70,14 @@ public class ResponseEntityExceptionHandlerTests {
 
 	private WebRequest request;
 
-	private HttpServletRequest servletRequest;
+	private MockHttpServletRequest servletRequest;
 
 	private MockHttpServletResponse servletResponse;
 
 
 	@Before
 	public void setup() {
-		this.servletRequest = new MockHttpServletRequest();
+		this.servletRequest = new MockHttpServletRequest("GET", "/");
 		this.servletResponse = new MockHttpServletResponse();
 		this.request = new ServletWebRequest(this.servletRequest, this.servletResponse);
 
@@ -104,19 +103,12 @@ public class ResponseEntityExceptionHandlerTests {
 	}
 
 	@Test
-	public void noSuchRequestHandlingMethod() {
-		Exception ex = new NoSuchRequestHandlingMethodException("GET", TestController.class);
-		testException(ex);
-	}
-
-	@Test
 	public void httpRequestMethodNotSupported() {
 		List<String> supported = Arrays.asList("POST", "DELETE");
 		Exception ex = new HttpRequestMethodNotSupportedException("GET", supported);
 
 		ResponseEntity<Object> responseEntity = testException(ex);
 		assertEquals(EnumSet.of(HttpMethod.POST, HttpMethod.DELETE), responseEntity.getHeaders().getAllow());
-
 	}
 
 	@Test

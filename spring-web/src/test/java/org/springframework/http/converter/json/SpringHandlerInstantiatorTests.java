@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2015 the original author or authors.
+ * Copyright 2002-2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -86,7 +86,6 @@ public class SpringHandlerInstantiatorTests {
 		User user = new User("bob");
 		String json = this.objectMapper.writeValueAsString(user);
 		assertEquals("{\"username\":\"BOB\"}", json);
-
 	}
 
 	@Test
@@ -197,7 +196,7 @@ public class SpringHandlerInstantiatorTests {
 			return JsonTypeInfo.Id.CUSTOM;
 		}
 
-		@Override
+		// Only needed when compiling against Jackson 2.7; gone in 2.8
 		public JavaType typeFromId(String s) {
 			return TypeFactory.defaultInstance().constructFromCanonical(s);
 		}
@@ -217,8 +216,13 @@ public class SpringHandlerInstantiatorTests {
 			return null;
 		}
 
-		// New in Jackson 2.5
+		@Override
 		public JavaType typeFromId(DatabindContext context, String id) {
+			return null;
+		}
+
+		// New in Jackson 2.7
+		public String getDescForKnownTypeIds() {
 			return null;
 		}
 	}

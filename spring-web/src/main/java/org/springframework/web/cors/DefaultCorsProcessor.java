@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2015 the original author or authors.
+ * Copyright 2002-2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@
 package org.springframework.web.cors;
 
 import java.io.IOException;
-import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import javax.servlet.http.HttpServletRequest;
@@ -37,7 +37,7 @@ import org.springframework.util.CollectionUtils;
 import org.springframework.web.util.WebUtils;
 
 /**
- * Default implementation of {@link CorsProcessor}, as defined by the
+ * The default implementation of {@link CorsProcessor}, as defined by the
  * <a href="http://www.w3.org/TR/cors/">CORS W3C recommendation</a>.
  *
  * <p>Note that when input {@link CorsConfiguration} is {@code null}, this
@@ -47,17 +47,16 @@ import org.springframework.web.util.WebUtils;
  * as a same-origin one.
  *
  * @author Sebastien Deleuze
- * @author Rossen Stoyanhcev
+ * @author Rossen Stoyanchev
  * @since 4.2
  */
 public class DefaultCorsProcessor implements CorsProcessor {
-
-	private static final Charset UTF8_CHARSET = Charset.forName("UTF-8");
 
 	private static final Log logger = LogFactory.getLog(DefaultCorsProcessor.class);
 
 
 	@Override
+	@SuppressWarnings("resource")
 	public boolean processRequest(CorsConfiguration config, HttpServletRequest request, HttpServletResponse response)
 			throws IOException {
 
@@ -66,14 +65,14 @@ public class DefaultCorsProcessor implements CorsProcessor {
 		}
 
 		ServletServerHttpResponse serverResponse = new ServletServerHttpResponse(response);
-		ServletServerHttpRequest serverRequest = new ServletServerHttpRequest(request);
-
-		if (WebUtils.isSameOrigin(serverRequest)) {
-			logger.debug("Skip CORS processing, request is a same-origin one");
+		if (responseHasCors(serverResponse)) {
+			logger.debug("Skip CORS processing: response already contains \"Access-Control-Allow-Origin\" header");
 			return true;
 		}
-		if (responseHasCors(serverResponse)) {
-			logger.debug("Skip CORS processing, response already contains \"Access-Control-Allow-Origin\" header");
+
+		ServletServerHttpRequest serverRequest = new ServletServerHttpRequest(request);
+		if (WebUtils.isSameOrigin(serverRequest)) {
+			logger.debug("Skip CORS processing: request is from same origin");
 			return true;
 		}
 
@@ -92,14 +91,13 @@ public class DefaultCorsProcessor implements CorsProcessor {
 	}
 
 	private boolean responseHasCors(ServerHttpResponse response) {
-		boolean hasAllowOrigin = false;
 		try {
-			hasAllowOrigin = (response.getHeaders().getAccessControlAllowOrigin() != null);
+			return (response.getHeaders().getAccessControlAllowOrigin() != null);
 		}
 		catch (NullPointerException npe) {
 			// SPR-11919 and https://issues.jboss.org/browse/WFLY-3474
+			return false;
 		}
-		return hasAllowOrigin;
 	}
 
 	/**
@@ -109,7 +107,7 @@ public class DefaultCorsProcessor implements CorsProcessor {
 	 */
 	protected void rejectRequest(ServerHttpResponse response) throws IOException {
 		response.setStatusCode(HttpStatus.FORBIDDEN);
-		response.getBody().write("Invalid CORS request".getBytes(UTF8_CHARSET));
+		response.getBody().write("Invalid CORS request".getBytes(StandardCharsets.UTF_8));
 	}
 
 	/**
@@ -163,7 +161,7 @@ public class DefaultCorsProcessor implements CorsProcessor {
 	/**
 	 * Check the origin and determine the origin for the response. The default
 	 * implementation simply delegates to
-	 * {@link org.springframework.web.cors.CorsConfiguration#checkOrigin(String)}
+	 * {@link org.springframework.web.cors.CorsConfiguration#checkOrigin(String)}.
 	 */
 	protected String checkOrigin(CorsConfiguration config, String requestOrigin) {
 		return config.checkOrigin(requestOrigin);
@@ -172,7 +170,7 @@ public class DefaultCorsProcessor implements CorsProcessor {
 	/**
 	 * Check the HTTP method and determine the methods for the response of a
 	 * pre-flight request. The default implementation simply delegates to
-	 * {@link org.springframework.web.cors.CorsConfiguration#checkOrigin(String)}
+	 * {@link org.springframework.web.cors.CorsConfiguration#checkOrigin(String)}.
 	 */
 	protected List<HttpMethod> checkMethods(CorsConfiguration config, HttpMethod requestMethod) {
 		return config.checkHttpMethod(requestMethod);
@@ -185,7 +183,7 @@ public class DefaultCorsProcessor implements CorsProcessor {
 	/**
 	 * Check the headers and determine the headers for the response of a
 	 * pre-flight request. The default implementation simply delegates to
-	 * {@link org.springframework.web.cors.CorsConfiguration#checkOrigin(String)}
+	 * {@link org.springframework.web.cors.CorsConfiguration#checkOrigin(String)}.
 	 */
 	protected List<String> checkHeaders(CorsConfiguration config, List<String> requestHeaders) {
 		return config.checkHeaders(requestHeaders);
@@ -193,7 +191,7 @@ public class DefaultCorsProcessor implements CorsProcessor {
 
 	private List<String> getHeadersToUse(ServerHttpRequest request, boolean isPreFlight) {
 		HttpHeaders headers = request.getHeaders();
-		return (isPreFlight ? headers.getAccessControlRequestHeaders() : new ArrayList<String>(headers.keySet()));
+		return (isPreFlight ? headers.getAccessControlRequestHeaders() : new ArrayList<>(headers.keySet()));
 	}
 
 }

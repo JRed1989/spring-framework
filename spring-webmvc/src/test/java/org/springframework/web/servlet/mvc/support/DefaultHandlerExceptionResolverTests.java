@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2013 the original author or authors.
+ * Copyright 2002-2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -43,11 +43,12 @@ import org.springframework.web.bind.ServletRequestBindingException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.ModelAndView;
 import org.springframework.web.servlet.NoHandlerFoundException;
-import org.springframework.web.servlet.mvc.multiaction.NoSuchRequestHandlingMethodException;
 
 import static org.junit.Assert.*;
 
-/** @author Arjen Poutsma */
+/**
+ * @author Arjen Poutsma
+ */
 public class DefaultHandlerExceptionResolverTests {
 
 	private DefaultHandlerExceptionResolver exceptionResolver;
@@ -59,18 +60,10 @@ public class DefaultHandlerExceptionResolverTests {
 	@Before
 	public void setUp() {
 		exceptionResolver = new DefaultHandlerExceptionResolver();
+		exceptionResolver.setWarnLogCategory(exceptionResolver.getClass().getName());
 		request = new MockHttpServletRequest();
 		response = new MockHttpServletResponse();
 		request.setMethod("GET");
-	}
-
-	@Test
-	public void handleNoSuchRequestHandlingMethod() {
-		NoSuchRequestHandlingMethodException ex = new NoSuchRequestHandlingMethodException(request);
-		ModelAndView mav = exceptionResolver.resolveException(request, response, null, ex);
-		assertNotNull("No ModelAndView returned", mav);
-		assertTrue("No Empty ModelAndView returned", mav.isEmpty());
-		assertEquals("Invalid status code", 404, response.getStatus());
 	}
 
 	@Test
@@ -174,7 +167,9 @@ public class DefaultHandlerExceptionResolverTests {
 		assertNotNull("No ModelAndView returned", mav);
 		assertTrue("No Empty ModelAndView returned", mav.isEmpty());
 		assertEquals("Invalid status code", 400, response.getStatus());
-		assertEquals("Required request part 'name' is not present.", response.getErrorMessage());
+		assertTrue(response.getErrorMessage().contains("request part"));
+		assertTrue(response.getErrorMessage().contains("name"));
+		assertTrue(response.getErrorMessage().contains("not present"));
 	}
 
 	@Test
@@ -210,6 +205,7 @@ public class DefaultHandlerExceptionResolverTests {
 		// SPR-9653
 		assertSame(ex, request.getAttribute("javax.servlet.error.exception"));
 	}
+
 
 	@SuppressWarnings("unused")
 	public void handle(String arg) {

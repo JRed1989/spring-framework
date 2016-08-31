@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2015 the original author or authors.
+ * Copyright 2002-2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -34,6 +34,7 @@ import org.springframework.test.context.junit4.statements.ProfileValueChecker;
 import org.springframework.test.context.junit4.statements.RunAfterTestClassCallbacks;
 import org.springframework.test.context.junit4.statements.RunBeforeTestClassCallbacks;
 import org.springframework.util.Assert;
+import org.springframework.util.ClassUtils;
 
 /**
  * {@code SpringClassRule} is a custom JUnit {@link TestRule} that supports
@@ -76,7 +77,7 @@ import org.springframework.util.Assert;
  * <li>{@link org.springframework.test.annotation.IfProfileValue @IfProfileValue}</li>
  * </ul>
  *
- * <p><strong>NOTE:</strong> This class requires JUnit 4.9 or higher.
+ * <p><strong>NOTE:</strong> As of Spring Framework 4.3, this class requires JUnit 4.12 or higher.
  *
  * @author Sam Brannen
  * @author Philippe Marschall
@@ -94,25 +95,27 @@ public class SpringClassRule implements TestRule {
 	 * Cache of {@code TestContextManagers} keyed by test class.
 	 */
 	private static final Map<Class<?>, TestContextManager> testContextManagerCache =
-			new ConcurrentHashMap<Class<?>, TestContextManager>(64);
+			new ConcurrentHashMap<>(64);
+
+	static {
+		Assert.state(ClassUtils.isPresent("org.junit.internal.Throwables", SpringClassRule.class.getClassLoader()),
+				"SpringClassRule requires JUnit 4.12 or higher.");
+	}
 
 
 	/**
 	 * Apply <em>class-level</em> features of the <em>Spring TestContext
 	 * Framework</em> to the supplied {@code base} statement.
-	 *
 	 * <p>Specifically, this method retrieves the {@link TestContextManager}
 	 * used by this rule and its associated {@link SpringMethodRule} and
 	 * invokes the {@link TestContextManager#beforeTestClass() beforeTestClass()}
 	 * and {@link TestContextManager#afterTestClass() afterTestClass()} methods
 	 * on the {@code TestContextManager}.
-	 *
 	 * <p>In addition, this method checks whether the test is enabled in
 	 * the current execution environment. This prevents classes with a
 	 * non-matching {@code @IfProfileValue} annotation from running altogether,
 	 * even skipping the execution of {@code beforeTestClass()} methods
 	 * in {@code TestExecutionListeners}.
-	 *
 	 * @param base the base {@code Statement} that this rule should be applied to
 	 * @param description a {@code Description} of the current test execution
 	 * @return a statement that wraps the supplied {@code base} with class-level
@@ -126,13 +129,10 @@ public class SpringClassRule implements TestRule {
 	@Override
 	public Statement apply(Statement base, Description description) {
 		Class<?> testClass = description.getTestClass();
-
 		if (logger.isDebugEnabled()) {
-			logger.debug("Applying SpringClassRule to test class [" + testClass.getName() + "].");
+			logger.debug("Applying SpringClassRule to test class [" + testClass.getName() + "]");
 		}
-
 		validateSpringMethodRuleConfiguration(testClass);
-
 		TestContextManager testContextManager = getTestContextManager(testClass);
 
 		Statement statement = base;
@@ -175,41 +175,40 @@ public class SpringClassRule implements TestRule {
 		return new TestContextManagerCacheEvictor(statement, testClass);
 	}
 
+
 	/**
 	 * Throw an {@link IllegalStateException} if the supplied {@code testClass}
 	 * does not declare a {@code public SpringMethodRule} field that is
 	 * annotated with {@code @Rule}.
 	 */
-	private static final void validateSpringMethodRuleConfiguration(Class<?> testClass) {
-		Field ruleField = null;
+	private static void validateSpringMethodRuleConfiguration(Class<?> testClass) {
+		Field ruleField = findSpringMethodRuleField(testClass);
 
+		Assert.state(ruleField != null, () -> String.format(
+					"Failed to find 'public SpringMethodRule' field in test class [%s]. " +
+					"Consult the javadoc for SpringClassRule for details.", testClass.getName()));
+
+		Assert.state(ruleField.isAnnotationPresent(Rule.class), () -> String.format(
+					"SpringMethodRule field [%s] must be annotated with JUnit's @Rule annotation. " +
+					"Consult the javadoc for SpringClassRule for details.", ruleField));
+	}
+
+	private static Field findSpringMethodRuleField(Class<?> testClass) {
 		for (Field field : testClass.getFields()) {
 			int modifiers = field.getModifiers();
-			if (!Modifier.isStatic(modifiers) && Modifier.isPublic(modifiers)
-					&& SpringMethodRule.class.isAssignableFrom(field.getType())) {
-				ruleField = field;
-				break;
+			if (!Modifier.isStatic(modifiers) && Modifier.isPublic(modifiers) &&
+					SpringMethodRule.class.isAssignableFrom(field.getType())) {
+				return field;
 			}
 		}
-
-		if (ruleField == null) {
-			throw new IllegalStateException(String.format(
-				"Failed to find 'public SpringMethodRule' field in test class [%s]. "
-						+ "Consult the Javadoc for SpringClassRule for details.", testClass.getName()));
-		}
-
-		if (!ruleField.isAnnotationPresent(Rule.class)) {
-			throw new IllegalStateException(String.format(
-				"SpringMethodRule field [%s] must be annotated with JUnit's @Rule annotation. "
-						+ "Consult the Javadoc for SpringClassRule for details.", ruleField));
-		}
+		return null;
 	}
 
 	/**
 	 * Get the {@link TestContextManager} associated with the supplied test class.
 	 * @param testClass the test class to be managed; never {@code null}
 	 */
-	static final TestContextManager getTestContextManager(Class<?> testClass) {
+	static TestContextManager getTestContextManager(Class<?> testClass) {
 		Assert.notNull(testClass, "testClass must not be null");
 		synchronized (testContextManagerCache) {
 			TestContextManager testContextManager = testContextManagerCache.get(testClass);

@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2015 the original author or authors.
+ * Copyright 2002-2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,9 +21,9 @@ import java.lang.annotation.Annotation;
 import org.springframework.core.MethodParameter;
 import org.springframework.core.annotation.AnnotationUtils;
 import org.springframework.messaging.Message;
-import org.springframework.messaging.converter.AbstractMessageConverter;
 import org.springframework.messaging.converter.MessageConversionException;
 import org.springframework.messaging.converter.MessageConverter;
+import org.springframework.messaging.converter.SmartMessageConverter;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.messaging.handler.invocation.HandlerMethodArgumentResolver;
 import org.springframework.util.Assert;
@@ -97,7 +97,7 @@ public class PayloadArgumentResolver implements HandlerMethodArgumentResolver {
 			if (ann == null || ann.required()) {
 				String paramName = getParameterName(parameter);
 				BindingResult bindingResult = new BeanPropertyBindingResult(payload, paramName);
-				bindingResult.addError(new ObjectError(paramName, "@Payload param is required"));
+				bindingResult.addError(new ObjectError(paramName, "Payload value must not be empty"));
 				throw new MethodArgumentNotValidException(message, parameter, bindingResult);
 			}
 			else {
@@ -106,17 +106,22 @@ public class PayloadArgumentResolver implements HandlerMethodArgumentResolver {
 		}
 
 		Class<?> targetClass = parameter.getParameterType();
-		if (ClassUtils.isAssignable(targetClass, payload.getClass())) {
+		Class<?> payloadClass = payload.getClass();
+		if (ClassUtils.isAssignable(targetClass, payloadClass)) {
 			validate(message, parameter, payload);
 			return payload;
 		}
 		else {
-			payload = (this.converter instanceof AbstractMessageConverter ?
-					((AbstractMessageConverter) this.converter).fromMessage(message, targetClass, parameter) :
-					this.converter.fromMessage(message, targetClass));
+			if (this.converter instanceof SmartMessageConverter) {
+				SmartMessageConverter smartConverter = (SmartMessageConverter) this.converter;
+				payload = smartConverter.fromMessage(message, targetClass, parameter);
+			}
+			else {
+				payload = this.converter.fromMessage(message, targetClass);
+			}
 			if (payload == null) {
-				throw new MessageConversionException(message,
-						"No converter found to convert to " + targetClass + ", message=" + message);
+				throw new MessageConversionException(message, "Cannot convert from [" +
+						payloadClass.getName() + "] to [" + targetClass.getName() + "] for " + message);
 			}
 			validate(message, parameter, payload);
 			return payload;

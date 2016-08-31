@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2015 the original author or authors.
+ * Copyright 2002-2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -45,7 +45,7 @@ import org.springframework.web.socket.sockjs.transport.TransportType;
  */
 class DefaultTransportRequest implements TransportRequest {
 
-	private static Log logger = LogFactory.getLog(DefaultTransportRequest.class);
+	private static final Log logger = LogFactory.getLog(DefaultTransportRequest.class);
 
 
 	private final SockJsUrlInfo sockJsUrlInfo;
@@ -66,7 +66,7 @@ class DefaultTransportRequest implements TransportRequest {
 
 	private TaskScheduler timeoutScheduler;
 
-	private final List<Runnable> timeoutTasks = new ArrayList<Runnable>();
+	private final List<Runnable> timeoutTasks = new ArrayList<>();
 
 	private DefaultTransportRequest fallbackRequest;
 
@@ -75,10 +75,10 @@ class DefaultTransportRequest implements TransportRequest {
 			HttpHeaders handshakeHeaders, HttpHeaders httpRequestHeaders,
 			Transport transport, TransportType serverTransportType, SockJsMessageCodec codec) {
 
-		Assert.notNull(sockJsUrlInfo, "'sockJsUrlInfo' is required");
-		Assert.notNull(transport, "'transport' is required");
-		Assert.notNull(serverTransportType, "'transportType' is required");
-		Assert.notNull(codec, "'codec' is required");
+		Assert.notNull(sockJsUrlInfo, "SockJsUrlInfo is required");
+		Assert.notNull(transport, "Transport is required");
+		Assert.notNull(serverTransportType, "TransportType is required");
+		Assert.notNull(codec, "SockJsMessageCodec is required");
 		this.sockJsUrlInfo = sockJsUrlInfo;
 		this.handshakeHeaders = (handshakeHeaders != null ? handshakeHeaders : new HttpHeaders());
 		this.httpRequestHeaders = (httpRequestHeaders != null ? httpRequestHeaders : new HttpHeaders());
